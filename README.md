@@ -1,5 +1,7 @@
 # The Movie Pitch Game
-a web-based game of fun and creativity for movie buffs, implemented in PHP
+### a web-based game of fun and creativity for movie buffs, implemented in PHP
+
+_No license yet.  Terms of sharing are yet to be decided.  For now, do not use._
 
 First checkin is alpha version 0.1, which is the first to have a complete cycle of forms representing normal progress through the game.
 It does not yet have the side branches which would be used for reporting bad inputs for moderation.
