@@ -66,6 +66,7 @@ CREATE TABLE pitchgame.pitches (
   KEY pitch_subject      (subject_id),
   KEY pitch_verb         (verb_id),
   KEY pitch_object       (object_id),
+  CONSTRAINT pitch_session FOREIGN KEY (session_id) REFERENCES objects (session_id),
   CONSTRAINT pitch_subject FOREIGN KEY (subject_id) REFERENCES subjects (subject_id),
   CONSTRAINT pitch_verb    FOREIGN KEY (verb_id)    REFERENCES verbs (verb_id),
   CONSTRAINT pitch_object  FOREIGN KEY (object_id)  REFERENCES objects (object_id)
@@ -76,7 +77,7 @@ CREATE TABLE pitchgame.teams (
   when_created        datetime      NOT NULL DEFAULT current_timestamp(),
   token               varchar(40)   NOT NULL,
   use_ct              int           NOT NULL DEFAULT 0,
-  PRIMARY KEY (team_id)
+  PRIMARY KEY            (team_id)
 );
 
 CREATE TABLE pitchgame.sessions (
@@ -93,9 +94,9 @@ CREATE TABLE pitchgame.sessions (
   is_test             boolean       NOT NULL DEFAULT 0,
   PRIMARY KEY            (session_id),
   KEY when_last_used     (when_last_used),
-  KEY team               (team_id),
   KEY cookie_token       (cookie_token),
-  CONSTRAINT team FOREIGN KEY (team_id) REFERENCES teams (team_id)
+  KEY session_team       (team_id),
+  CONSTRAINT session_team FOREIGN KEY (team_id) REFERENCES teams (team_id)
 );
 
 CREATE TABLE pitchgame.ratings (
@@ -106,9 +107,10 @@ CREATE TABLE pitchgame.ratings (
   when_rated          datetime      NOT NULL DEFAULT current_timestamp(),
   PRIMARY KEY            (rating_id),
   UNIQUE KEY no_dupes    (pitch_id, session_id),
-  KEY session_rated      (session_id),
-  CONSTRAINT pitch_rated   FOREIGN KEY (pitch_id)   REFERENCES pitches (pitch_id),
-  CONSTRAINT session_rated FOREIGN KEY (session_id) REFERENCES sessions (session_id)
+  KEY rating_session     (session_id),
+  KEY rating_pitch       (pitch_id),
+  CONSTRAINT rating_session FOREIGN KEY (session_id) REFERENCES sessions (session_id),
+  CONSTRAINT rating_pitch   FOREIGN KEY (pitch_id)   REFERENCES pitches (pitch_id)
 );
 
 CREATE TABLE pitchgame.suggestions (
@@ -118,14 +120,39 @@ CREATE TABLE pitchgame.suggestions (
   verb_id             int           NOT NULL,
   object_id           int           NOT NULL,
   when_suggested      datetime      NOT NULL DEFAULT current_timestamp(),
+  accepted_by         int           DEFAULT NULL COMMENT 'a request may be both accepted and rejected if it flags more than one word',
+  rejected_by         int           DEFAULT NULL,
   PRIMARY KEY            (suggestion_id),
   UNIQUE KEY no_dupes    (session_id, subject_id, verb_id, object_id)
-  KEY subject_id         (subject_id),
-  KEY verb_id            (verb_id),
-  KEY object_id          (object_id),
-  KEY session_id         (session_id),
-  CONSTRAINT session_id FOREIGN KEY (session_id) REFERENCES sessions (session_id),
-  CONSTRAINT subject_id FOREIGN KEY (subject_id) REFERENCES subjects (subject_id),
-  CONSTRAINT verb_id    FOREIGN KEY (verb_id)    REFERENCES verbs (verb_id),
-  CONSTRAINT object_id  FOREIGN KEY (object_id)b REFERENCES objects (object_id)
+  KEY suggestion_session (session_id),
+  KEY suggestion_subject (subject_id),
+  KEY suggestion_verb    (verb_id),
+  KEY suggestion_object  (object_id),
+  CONSTRAINT suggestion_session        FOREIGN KEY (session_id)  REFERENCES sessions (session_id),
+  CONSTRAINT suggestion_subject        FOREIGN KEY (subject_id)  REFERENCES subjects (subject_id),
+  CONSTRAINT suggestion_verb           FOREIGN KEY (verb_id)     REFERENCES verbs (verb_id),
+  CONSTRAINT suggestion_object         FOREIGN KEY (object_id)   REFERENCES objects (object_id),
+  CONSTRAINT suggestion_session_accept FOREIGN KEY (accepted_by) REFERENCES sessions (session_id),
+  CONSTRAINT suggestion_session_reject FOREIGN KEY (rejected_by) REFERENCES sessions (session_id)
+);
+
+CREATE TABLE moderations (
+  moderation_id       int           NOT NULL AUTO_INCREMENT,
+  session_id          int           NOT NULL COMMENT 'track people''s moderation requests to detect abuse',
+  subject_id          int           DEFAULT NULL,
+  verb_id             int           DEFAULT NULL,
+  object_id           int           DEFAULT NULL,
+  pitch_id            int           DEFAULT NULL,
+  when_submitted      datetime      NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY            (moderation_id),
+  KEY moderation_session (session_id),
+  KEY moderation_subject (subject_id),
+  KEY moderation_verb    (verb_id),
+  KEY moderation_object  (object_id),
+  KEY moderation_pitch   (pitch_id),
+  CONSTRAINT moderation_session FOREIGN KEY (session_id) REFERENCES sessions (session_id),
+  CONSTRAINT moderation_subject FOREIGN KEY (subject_id) REFERENCES subjects (subject_id),
+  CONSTRAINT moderation_verb    FOREIGN KEY (verb_id)    REFERENCES verbs (verb_id),
+  CONSTRAINT moderation_object  FOREIGN KEY (object_id)  REFERENCES objects (object_id),
+  CONSTRAINT moderation_pitch   FOREIGN KEY (pitch_id)   REFERENCES pitches (pitch_id)
 );
