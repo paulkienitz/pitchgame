@@ -12,8 +12,7 @@ CREATE TABLE pitchgame.subjects (
   is_deleted          boolean       NOT NULL DEFAULT 0,
   PRIMARY KEY            (subject_id),
   UNIQUE KEY word        (word),
-  KEY last_shown         (last_shown),
-  KEY moderation_status  (moderation_status)
+  KEY last_shown         (last_shown)
 );
 
 CREATE TABLE pitchgame.verbs (
@@ -26,8 +25,7 @@ CREATE TABLE pitchgame.verbs (
   is_deleted          boolean       NOT NULL DEFAULT 0,
   PRIMARY KEY            (verb_id),
   UNIQUE KEY word        (word),
-  KEY last_shown         (last_shown),
-  KEY moderation_status  (moderation_status)
+  KEY last_shown         (last_shown)
 );
 
 CREATE TABLE pitchgame.objects (
@@ -40,8 +38,7 @@ CREATE TABLE pitchgame.objects (
   is_deleted          boolean       NOT NULL DEFAULT 0,
   PRIMARY KEY            (object_id),
   UNIQUE KEY word        (word),
-  KEY last_shown         (last_shown),
-  KEY moderation_status  (moderation_status)
+  KEY last_shown         (last_shown)
 );
 
 CREATE TABLE pitchgame.pitches (
@@ -53,6 +50,7 @@ CREATE TABLE pitchgame.pitches (
   subject_id          int           NOT NULL,
   verb_id             int           NOT NULL,
   object_id           int           NOT NULL,
+  when_submitted      datetime      NOT NULL DEFAULT current_timestamp(),
   shown_ct            int           NOT NULL DEFAULT 0,
   last_shown          datetime      DEFAULT current_timestamp(),
   moderation_flag_ct  int           NOT NULL DEFAULT 0,
@@ -62,7 +60,6 @@ CREATE TABLE pitchgame.pitches (
   UNIQUE KEY no_dupes    (session_id, subject_id, verb_id, object_id)
   KEY title              (title),
   KEY last_shown         (last_shown),
-  KEY moderation_status  (moderation_status),
   KEY pitch_subject      (subject_id),
   KEY pitch_verb         (verb_id),
   KEY pitch_object       (object_id),
@@ -83,15 +80,17 @@ CREATE TABLE pitchgame.teams (
 CREATE TABLE pitchgame.sessions (
   session_id          int           NOT NULL AUTO_INCREMENT,
   when_created        datetime      NOT NULL DEFAULT current_timestamp(),
-  when_last_used      datetime      NOT NULL DEFAULT current_timestamp(),
+  when_last_used      datetime      NOT NULL DEFAULT current_timestamp(),   -- not implemented, remove?
   signature           varchar(100)  DEFAULT NULL COMMENT 'acts as default for pitches.signature',
   team_id             int           DEFAULT NULL,
   ip_address          varchar(40)   DEFAULT NULL COMMENT 'for spam moderation only',
   useragent           varchar(1000) DEFAULT NULL COMMENT 'for spam moderation only',
   cookie_token        varchar(40)   DEFAULT NULL,
-  sso_provider        varchar(100)  DEFAULT NULL,
-  sso_name            varchar(100)  DEFAULT NULL,
-  is_test             boolean       NOT NULL DEFAULT 0,
+  sso_provider        varchar(100)  DEFAULT NULL,        -- not implemented, long term
+  sso_name            varchar(100)  DEFAULT NULL,        -- not implemented, long term
+  is_test             boolean       NOT NULL DEFAULT 0,  -- not implemented, remove?
+  moderation_status   varchar(10)   DEFAULT NULL,
+  is_blocked          boolean       NOT NULL DEFAULT 0,
   PRIMARY KEY            (session_id),
   KEY when_last_used     (when_last_used),
   KEY cookie_token       (cookie_token),
@@ -120,8 +119,6 @@ CREATE TABLE pitchgame.suggestions (
   verb_id             int           NOT NULL,
   object_id           int           NOT NULL,
   when_suggested      datetime      NOT NULL DEFAULT current_timestamp(),
-  accepted_by         int           DEFAULT NULL COMMENT 'a request may be both accepted and rejected if it flags more than one word',
-  rejected_by         int           DEFAULT NULL,
   PRIMARY KEY            (suggestion_id),
   UNIQUE KEY no_dupes    (session_id, subject_id, verb_id, object_id)
   KEY suggestion_session (session_id),
@@ -131,9 +128,7 @@ CREATE TABLE pitchgame.suggestions (
   CONSTRAINT suggestion_session        FOREIGN KEY (session_id)  REFERENCES sessions (session_id),
   CONSTRAINT suggestion_subject        FOREIGN KEY (subject_id)  REFERENCES subjects (subject_id),
   CONSTRAINT suggestion_verb           FOREIGN KEY (verb_id)     REFERENCES verbs (verb_id),
-  CONSTRAINT suggestion_object         FOREIGN KEY (object_id)   REFERENCES objects (object_id),
-  CONSTRAINT suggestion_session_accept FOREIGN KEY (accepted_by) REFERENCES sessions (session_id),
-  CONSTRAINT suggestion_session_reject FOREIGN KEY (rejected_by) REFERENCES sessions (session_id)
+  CONSTRAINT suggestion_object         FOREIGN KEY (object_id)   REFERENCES objects (object_id)
 );
 
 CREATE TABLE moderations (
@@ -144,15 +139,22 @@ CREATE TABLE moderations (
   object_id           int           DEFAULT NULL,
   pitch_id            int           DEFAULT NULL,
   when_submitted      datetime      NOT NULL DEFAULT current_timestamp(),
-  PRIMARY KEY            (moderation_id),
-  KEY moderation_session (session_id),
-  KEY moderation_subject (subject_id),
-  KEY moderation_verb    (verb_id),
-  KEY moderation_object  (object_id),
-  KEY moderation_pitch   (pitch_id),
-  CONSTRAINT moderation_session FOREIGN KEY (session_id) REFERENCES sessions (session_id),
-  CONSTRAINT moderation_subject FOREIGN KEY (subject_id) REFERENCES subjects (subject_id),
-  CONSTRAINT moderation_verb    FOREIGN KEY (verb_id)    REFERENCES verbs (verb_id),
-  CONSTRAINT moderation_object  FOREIGN KEY (object_id)  REFERENCES objects (object_id),
-  CONSTRAINT moderation_pitch   FOREIGN KEY (pitch_id)   REFERENCES pitches (pitch_id)
+  accepted_by         int           DEFAULT NULL COMMENT 'a request may be both accepted and rejected if it flags more than one word',
+  rejected_by         int           DEFAULT NULL,
+  PRIMARY KEY                   (moderation_id),
+  UNIQUE KEY no_dupes           (session_id, subject_id, verb_id, object_id, pitch_id)
+  KEY moderation_session        (session_id),
+  KEY moderation_subject        (subject_id),
+  KEY moderation_verb           (verb_id),
+  KEY moderation_object         (object_id),
+  KEY moderation_pitch          (pitch_id),
+  KEY suggestion_session_accept (suggestion_session_accept),
+  KEY suggestion_session_reject (suggestion_session_reject),
+  CONSTRAINT moderation_session        FOREIGN KEY (session_id)  REFERENCES sessions (session_id),
+  CONSTRAINT moderation_subject        FOREIGN KEY (subject_id)  REFERENCES subjects (subject_id),
+  CONSTRAINT moderation_verb           FOREIGN KEY (verb_id)     REFERENCES verbs (verb_id),
+  CONSTRAINT moderation_object         FOREIGN KEY (object_id)   REFERENCES objects (object_id),
+  CONSTRAINT moderation_pitch          FOREIGN KEY (pitch_id)    REFERENCES pitches (pitch_id),
+  CONSTRAINT suggestion_session_accept FOREIGN KEY (accepted_by) REFERENCES sessions (session_id),
+  CONSTRAINT suggestion_session_reject FOREIGN KEY (rejected_by) REFERENCES sessions (session_id)
 );
