@@ -5,14 +5,26 @@
 // It includes the capability to log each action to a common string buffer for error diagnosis.
 // By Paul Kienitz, 2021, no license, no rights reserved.
 
-function byn($b) 	// format something you normally expect to be boolean
+function f_byn($b)    // format something you normally expect to be boolean but may be in numeric form
 {
 	if (is_null($b))
 		return 'null';
 	else if (is_string($b))
-		return "\"$b\"";
+		return '"' . addslashes($b) . '"';
 	else
 		return $b ? 'true' : 'false';
+}
+
+function f_num($v)    // format something you expect to be number or string or actual boolean
+{
+	if (is_null($v))
+		return 'null';
+	else if (is_bool($v))
+		return $v ? 'true' : 'false';
+	else if (is_numeric($v))
+		return (string) $v;
+	else
+		return '"' . addslashes((string) $v) . '"';
 }
 
 class SqlStatement
@@ -23,7 +35,7 @@ class SqlStatement
 	protected $statement;			// our mysqli_stmt object, after prepAndBind() is called
 	private $logtext;				// a reference to a string variable used for logging output
 
-	public function __construct(&$marie, &$log, $paramType, $query)
+	public function __construct(mysqli &$marie, ?string &$log, string $paramType, string $query)
 	{
 		$this->marie = $marie;
 		$this->paramType = $paramType;
@@ -37,7 +49,7 @@ class SqlStatement
 	protected function prepAndBind(&...$params)
 	{
 		// lazy evaluation -- we only prepare the statement if it gets used
-		$this->log("$this->query:\n-- already prepared? " . byn(!!$this->statement));
+		$this->log("$this->query:\n-- already prepared? " . f_byn(!!$this->statement));
 		if (!$this->statement)
 			$this->statement = $this->marie->prepare($this->query);
 		$this->log(', ' . count($params) . " params '$this->paramType', ");
@@ -50,11 +62,21 @@ class SqlStatement
 		if (is_string($this->logtext))
 			$this->logtext .= $msg;
 	}
+
+	protected function logParams(&$params)
+	{
+		foreach ($params as $p)
+		{
+			$this->log($sep . f_num($p));
+			$sep = ', ';
+		}
+	}
 }
 
 
 class Selector extends SqlStatement
 {
+	private $rowsFound = 0;
 	private $rowsGotten = 0;
 	private $exhausted = false;
 
@@ -62,11 +84,13 @@ class Selector extends SqlStatement
 	{
 		$this->exhausted = false;
 		$this->prepAndBind(...$params);
-		$this->log("executing select");
+		$this->log("executing select with params ");
+		$this->logParams($params);
 		$result = $this->statement->execute();
-		$this->log(' yielded ' . byn($result));
+		$this->log(' yielded ' . f_byn($result));
 		$this->statement->store_result();
-		$this->log(" and found {$this->statement->num_rows} rows.\n");
+		$this->rowsFound = $this->statement->num_rows;
+		$this->log(" and found {$this->rowsFound} rows.\n");
 		return $result;
 	}
 
@@ -77,10 +101,10 @@ class Selector extends SqlStatement
 		$this->statement->bind_result(...$results);
 		$this->log("Fetching row $this->rowsGotten");
 		$result = $this->statement->fetch();
-		$this->log(' yielded ' . byn($result) . '. ');
+		$this->log(' yielded ' . f_byn($result) . '. ');
 		if ($result)
 			$this->rowsGotten++;
-		if ($this->rowsGotten >= $this->statement->num_rows) {
+		if ($this->rowsGotten >= $this->rowsFound) {
 			$this->log("\nAll $this->rowsGotten rows fetched, freeing.\n");
 			$this->statement->free_result();
 			$this->exhausted = true;
@@ -96,14 +120,15 @@ class ScalarSelector extends SqlStatement
 		$result = '';
 		$this->prepAndBind(...$params);
 		$this->statement->bind_result($result);
-		$this->log("executing scalar query");
+		$this->log("executing scalar query with params ");
+		$this->logParams($params);
 		$r = $this->statement->execute();
-		$this->log(' yielded ' . byn($r));
+		$this->log(' yielded ' . f_byn($r));
 		$this->statement->store_result();
 		if ($this->statement->num_rows > 1)   // not checking could produce obscure error later
 			throw new Exception("ScalarSelector retrieved {$this->statement->num_rows} rows from query $this->query");
 		$r = $this->statement->fetch();
-		$this->log(', fetch yielded ' . byn($r) . ".\n");
+		$this->log(', fetch yielded ' . f_byn($r) . ".\n");
 		$this->statement->free_result();
 		return $result;
 	}
@@ -114,9 +139,10 @@ class Inserter extends SqlStatement
 	public function insert(...$params)			// table being inserted to must have an auto-increment column for this to return a value
 	{
 		$this->prepAndBind(...$params);
-		$this->log('executing insert');
+		$this->log('executing insert of values ');
+		$this->logParams($params);
 		$r = $this->statement->execute();
-		$this->log(' yielded ' . byn($r) . ", producing key {$this->statement->insert_id}.\n");
+		$this->log(' yielded ' . f_byn($r) . ", adding {$this->marie->affected_rows} rows and producing key {$this->statement->insert_id}.\n");
 		return $this->statement->insert_id;
 	}
 }
@@ -126,9 +152,10 @@ class Updater extends SqlStatement		// also use this for delete statements, or i
 	public function update(...$params)
 	{
 		$this->prepAndBind(...$params);
-		$this->log('executing update');
+		$this->log('executing update with values ');
+		$this->logParams($params);
 		$result = $this->statement->execute();
-		$this->log(' yielded ' . byn($result) . ".\n");
+		$this->log(' yielded ' . f_byn($result) . " and updated {$this->marie->affected_rows} rows.\n");
 		return $result;
 	}
 }
