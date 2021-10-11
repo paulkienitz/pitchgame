@@ -1,9 +1,11 @@
 <!DOCTYPE html>
 <?php
+	// This page contains all views for the gameplay loop seen by regular players.
+
 	require 'pitchdata.php';
 
-	$pagestate = 0;			// 0 = initial view prompting for three words, 1 = prompting for pitch, 2 = reading and rating pitches, ...?
-	$con = new Connection();		// defined in pitchdata.php
+	$pagestate = 0;			// 0 = initial prompt for words, 1 = prompt for pitch, 2 = rate pitches, 3 = old faves, 4/5 = thanks and restart, 6 = mark bad words
+	$con = new PitchGameConnection();		// defined in pitchdata.php
 	$submissionId = null;
 
 	$validationFailed = false;
@@ -26,21 +28,24 @@
 		return $_SERVER['HTTP_CLIENT_IP'] ?? $_SERVER['HTTP_X_FORWARDED_FOR'] ?? $_SERVER['REMOTE_ADDR'];
 	}
 
-	function enc($str)
+	function enc(string $str)
 	{
 		return htmlspecialchars($str, ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5);
 	}
 
-	function despace($str)
+	function despace(string $str)
 	{
 		return trim(preg_replace('/\s+/', ' ', $str));
 	}
 
-	function englishNumber($n)
+	function englishNumber(int $n)
 	{
 		$words = explode(' ', 'zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty');
 		return array_key_exists($n, $words) ? $words[$n] : (string) $n;
 	}
+
+
+	// ---- process get/post args and do DB operations
 
 	if (!$databaseFailed)
 	{
@@ -56,7 +61,7 @@
 	else
 		$con->lastError = "Database connection failed - $con->lastError";
 
-	if (isset($_POST['formtype']) && !$databaseFailed)		// extract form values and validate
+	if (isset($_POST['formtype']) && !$databaseFailed)		// extract form values, validate, and update
 	{
 		if ($_POST['formtype'] == 'initialwords')			// pagestate 0, 4, or 5 form submitted
 		{
@@ -311,8 +316,8 @@
 	<?php foreach ($pitchesToReview as $pitcher) { ?>
 		<blockquote class=pitch>
 			<div>
-				<i>from the idea “<?=enc($pitcher->subjectNoun)?>
-			    <?=enc($pitcher->verb)?> <?=enc($pitcher->objectNoun)?>”:</i>
+				<i>from the idea “<?=enc($pitcher->subject)?>
+			    <?=enc($pitcher->verb)?> <?=enc($pitcher->object)?>”:</i>
 			</div>
 			<h3><?=enc($pitcher->title)?></h3>
 			<p style='white-space: pre-wrap'><?=enc($pitcher->pitch)?></p>
@@ -350,8 +355,8 @@
 	<?php foreach ($oldFavoritePitches as $pitcher) { ?>
 		<blockquote class=pitch>
 			<div>
-				<i>from the idea “<?=enc($pitcher->subjectNoun)?>
-			    <?=enc($pitcher->verb)?> <?=enc($pitcher->objectNoun)?>”:</i>
+				<i>from the idea “<?=enc($pitcher->subject)?>
+			    <?=enc($pitcher->verb)?> <?=enc($pitcher->object)?>”:</i>
 			</div>
 			<h3>
 				<?=enc($pitcher->title)?>
@@ -371,8 +376,31 @@
 
 	<p>
 
-	XXX TODO: write explanation of legitimate mod requests,
-	mention that abuse will be monitored.
+	Please let us know of any words which are unusable.&ensp;A moderator
+	will check each report and delete the invalid words.&ensp;Meanwhile,
+	you will return to the pitch writing page with a replacement word
+	for each one you check off.
+
+	</p><p>
+
+	You should mark a word invalid if it’s definitely not the correct part
+	of speech (“of”, “actually”, “tall”), if it’s gibberish (“Ggggggg”, “asdfasdf”),
+	if it’s spam (“http://lose-weight-fast.zz.xx”), if it’s not English and
+	wouldn’t be recognized by English speakers (“Mantergeistmännlichkeit”,
+	“新代载人飞船”), or if it’s hate propaganda or promotes crime.
+
+	</p><p>
+
+	You should <i>not</i> mark words invalid because the sentence it makes is
+	grammatically awkward due to mismatched plurals or tenses (“ichthyosaurs flies
+	over pessimism”), because it has adult language (“Ben Franklin shits on your shoe”),
+	or because you would really like an easier idea to pitch.&ensp;The inconvenience of
+	trying to make creative sense of a jumbled idea is a core part of the
+	game!&ensp;Abuse of this reporting feature will be monitored.
+	
+	</p><p>
+
+	So with that in mind, please mark the words that are invalid, if any:
 
 	</p>
 	<form method="POST" id=pitchform class=fields>
@@ -383,14 +411,11 @@
 		<input type=hidden name=pitch value='<?=enc($pitch)?>' />
 		<input type=hidden name=signature value='<?=enc($signature)?>' />
 		<p>
-		<input type=checkbox name=badsubject id=badSubject/>
-		<label for=badSubject>“<?=enc($challenge->subject)?>” is not a noun</label>
+		<label><input type=checkbox name=badsubject id=badSubject/> “<?=enc($challenge->subject)?>” is not a noun</label>
 		</p><p>
-		<input type=checkbox name=badverb id=badVerb/>
-		<label for=badVerb>“<?=enc($challenge->verb)?>” is not a verb</label>
+		<label><input type=checkbox name=badverb id=badVerb/> “<?=enc($challenge->verb)?>” is not a verb</label>
 		</p><p>
-		<input type=checkbox name=badobject id=badObject/>
-		<label for=badObject>“<?=enc($challenge->object)?>” is not a noun</label>
+		<label><input type=checkbox name=badobject id=badObject/> “<?=enc($challenge->object)?>” is not a noun</label>
 		</p><p>
 		<button>Return to my Pitch</button>
 		</p>
