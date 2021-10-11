@@ -23,6 +23,19 @@ function showHints(ev)
 	return false;
 }
 
+function showSessionSummary(ev)
+{
+	var sessionId = this.id.substring(8);
+	var url = "pitchgame_admin.php?sessionId=" + sessionId;
+	var plopup = document.getElementById('sessionStats');
+	SPARE.replaceContent("userSummarySpot", url, "userSummary", null, plopup, function (plopup) {
+		plopup.style.display = 'block';
+	});
+	ev.preventDefault();
+	ev.stopPropagation();
+	return false;
+}
+
 function closer()
 {
 	this.closest('.plop').style.display = 'none';
@@ -97,6 +110,9 @@ function init()
 	var stars = document.getElementsByClassName('spam');
 	for (var i = 0; i < stars.length; i++)
 		stars[i].addEventListener('click', rateAsSpamOrClear);
+	var sessions = document.getElementsByClassName('slinky');
+	for (var i = 0; i < sessions.length; i++)
+		sessions[i].addEventListener('click', showSessionSummary);
 }
 
 window.addEventListener("DOMContentLoaded", init);
