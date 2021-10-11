@@ -66,7 +66,27 @@ h2 {
 .plop .closer span {
 	font-weight: bold;
 	position: relative;   /* vertical-align does nothing */
-	top: -0.2em;
+	top: -0.26em;
+}
+@media screen and (min-width: 40em) {
+	.narrow {
+		max-width: 36em;
+		margin: 2em -19.5em;
+	}
+	.userSummary td:first-child {
+		white-space: nowrap;
+		padding-right: 0.5em;
+	}
+}
+.narrow aside {
+	box-shadow: 0 0 3em 0 gray;
+	/*text-shadow: 0 0 1.5px white;*/
+}
+.plop.narrow {
+	position: fixed;
+}
+.plop.narrow aside {
+	background-color: rgba(235, 235, 255, 0.92);
 }
 
 
@@ -93,7 +113,7 @@ textarea {
 form p:last-child {
 	margin-bottom: 0;
 }
-form.fields {
+.fields {
 	background: white;
 	border: 1px solid silver;
 	padding: 0.5em;
@@ -141,7 +161,7 @@ form.fields {
 }
 .optionality {
 	position: absolute;
-	bottom: -0.7em;
+	bottom: -0.55em;
 	transform: scaleY(0.8);
 	color: #337733;
 }
@@ -187,4 +207,40 @@ form.fields {
 .spam.marked {
 	font-weight: bold;
 	color: #000000;
+}
+
+.meta {
+	font-family: sans-serif;
+	font-size: 90%;
+}
+.meta .fields {
+	margin-top: 2em;
+}
+.meta .blockquote {
+	padding: 0.75em 1em 0.75em 2em;
+}
+.lit {
+	font-family: serif;
+	font-size: 111%;
+}
+.qq {
+	font-size: 120%;
+	font-weight: bold;
+}
+.meta label {
+	margin-right: 2em;
+}
+.userSummary {
+	font-family: sans-serif;
+	font-size: 90%;
+}
+.userSummary .warn {
+	color: #990000;
+}
+.userSummary td {
+	vertical-align: middle;
+}
+.browse {
+	text-decoration: underline;
+	text-decoration-color: #777799;
 }
