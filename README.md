@@ -12,7 +12,10 @@ A page of background and instructions about the game is written but is not yet a
 Second checkin is prerelease version 0.2, in which the game is close to complete for ordinary players.
 It adds nicer cosmetics, a closeable popup for the instructions, the ability to reject spam words, and tracking of moderation requests.
 Some internal features, such as logging of database activity, have been improved.  Exceptions are recorded in the system's normal PHP error log.
-Yet to be added are more cosmetics, admin pages for handling spam moderation, and better defense against the back and refresh buttons.
+
+Third checkin is prerelease 0.3, which adds a moderators’ page for spam abatement.  Internally, added type hinting.
+
+Yet to be added are more cosmetics, further admin page options to support blocking and cleaning up after malicious users, and better defense against breaking gameplay with the back and refresh buttons.
 
 The normal path through the game is as follows:
 0. The initial state of the screen displays a welcome message and prompts you for a noun, a verb, and a noun.
@@ -25,4 +28,6 @@ Abnormal paths can add these steps:
 6. Step 1 offers you a link to complain about the words you received.  This link takes you to a page where you can mark any or all of the three words as not a valid noun or not a valid verb.  After you do so it takes you back to step 1, with any word you flagged replaced with a new one.
 
 Validation errors reprompt you with the same screen, with messages about required fields or whatever else the issue might be.
-Database errors exit to a screen which, for now, displays an exception message openly, followed by a log of database activity in the current postback.  The former is (in theory) also written to the server error log.
+Database errors exit to a screen which, for now, displays an exception message openly, followed by a log of database activity in the current postback.  The former is also written to the server error log.
+
+The moderation page currently stays on a single view: a list of the ten newest pending moderation requests, each being answerable with a set of radio buttons.  If none are left it just has a thank-you message.  The same page can also serve content to SPARE to insert into a popup for viewing stats about a user, so you can see if they have a record of prior bad behavior.
