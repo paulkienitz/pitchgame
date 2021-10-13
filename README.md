@@ -33,3 +33,12 @@ Database errors exit to a screen which, for now, displays an exception message o
 
 The moderation page currently stays on a single view: a list of the ten newest pending moderation requests, each being answerable with a set of radio buttons.  If none are left it just has a thank-you message.
 The same page can also serve content to SPARE to insert into a popup for viewing stats about a user, so you can see if they have a record of prior bad behavior.
+
+### How to set up
+
+You'll need a host with PHP and MySql.
+Use "pitchgame tables.sql" to create the database, but don't upload it to the web host.
+Configure your database password in php.ini as mysqli.default_pw.
+Use .htaccess or equivalent to forbid downloading php.ini or .htaccess itself.
+Also use it to make pitchgame.php the default index page in its directory, if that's desirable.
+Then upload the other files and test it out.
