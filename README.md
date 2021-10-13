@@ -15,7 +15,8 @@ Some internal features, such as logging of database activity, have been improved
 
 Third checkin is prerelease 0.3, which adds a moderators’ page for spam abatement.  Internally, added type hinting.
 
-Yet to be added are more cosmetics, further admin page options to support blocking and cleaning up after malicious users, and better defense against breaking gameplay with the back and refresh buttons.
+Yet to be added are more cosmetics, further admin page options to support blocking and cleaning up after malicious users,
+better defense against breaking gameplay with the back and refresh buttons, and the team play feature.
 
 The normal path through the game is as follows:
 0. The initial state of the screen displays a welcome message and prompts you for a noun, a verb, and a noun.
@@ -30,4 +31,5 @@ Abnormal paths can add these steps:
 Validation errors reprompt you with the same screen, with messages about required fields or whatever else the issue might be.
 Database errors exit to a screen which, for now, displays an exception message openly, followed by a log of database activity in the current postback.  The former is also written to the server error log.
 
-The moderation page currently stays on a single view: a list of the ten newest pending moderation requests, each being answerable with a set of radio buttons.  If none are left it just has a thank-you message.  The same page can also serve content to SPARE to insert into a popup for viewing stats about a user, so you can see if they have a record of prior bad behavior.
+The moderation page currently stays on a single view: a list of the ten newest pending moderation requests, each being answerable with a set of radio buttons.  If none are left it just has a thank-you message.
+The same page can also serve content to SPARE to insert into a popup for viewing stats about a user, so you can see if they have a record of prior bad behavior.
