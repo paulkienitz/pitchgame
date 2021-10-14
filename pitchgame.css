@@ -124,10 +124,10 @@ form p:last-child {
 	white-space: nowrap;
 }
 .narrowgowides label {
-	margin-left: 2em;
+	margin-right: 2em;
 }
-.narrowgowides label:first-child {
-	margin-left: 0;
+.narrowgowides label:last-child {
+	margin-right: 0;
 }
 .narrowgowides input {
 	width: 13em;
@@ -159,9 +159,12 @@ form p:last-child {
 .chungus input.chungus {
 	width: calc(100% - 7em);
 }
+.postchex {
+	margin-left: 5.7em;
+}
 .optionality {
 	position: absolute;
-	bottom: -0.55em;
+	top: 1.45em;
 	transform: scaleY(0.8);
 	color: #337733;
 }
@@ -188,6 +191,9 @@ form p:last-child {
 .star {
 	color: #DDAA00;
 }
+.aftergap {
+	margin-right: 2em;
+}
 .stars .star {
 	font-size: 180%;
 	vertical-align: middle;
@@ -208,6 +214,13 @@ form p:last-child {
 	font-weight: bold;
 	color: #000000;
 }
+.otherstar {
+	font-family: sans-serif;
+	font-weight: normal;
+	font-size: 60%;
+	white-space: nowrap;
+	color: #666666;
+}
 
 .meta {
 	font-family: sans-serif;
@@ -226,6 +239,7 @@ form p:last-child {
 .qq {
 	font-size: 120%;
 	font-weight: bold;
+	margin: 0.33em 0;
 }
 .meta label {
 	margin-right: 2em;
