@@ -1,6 +1,9 @@
 CREATE DATABASE pitchgame;
 ALTER DATABASE pitchgame DEFAULT CHARACTER SET utf8mb4 DEFAULT COLLATE utf8mb4_unicode_520_ci;
 
+-- Create base table for common fields of subject, verb, object, and pitch?
+-- shown_ct, last_shown, moderation_flag_ct, moderation_status, is_deleted...
+-- This would require renumbering all four tables, ouch... I think that ship has sailed.
 
 CREATE TABLE pitchgame.subjects (
   subject_id          int           NOT NULL AUTO_INCREMENT,
