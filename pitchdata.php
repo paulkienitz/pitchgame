@@ -3,26 +3,7 @@
 // moderation and a feature for flagging garbage inputs, we have to track a bunch more detail.
 // The moderation features are probably more complex than the gameplay.  See pitchgame tables.sql for design.
 
-
 require 'sql.php';
-
-// TODO: css: make everything use more color
-//       banner text curved cinemascope style via svg?
-//       for favorites, show average rating
-//       refuse admittance for blocked sessions
-//       "use as my default signature" checkbox on pitch form
-//       maybe a link to see other pitches by the same author?  only if signature used?
-//       mitigate challenge request flood failures -- last_shown per session? soft exclusion of recent?
-//       control the bad effects of back button and refresh:
-//           postbacks must not change the challenge words... use seeded random?
-//           likewise use seeded random on review page?
-//           don't multiply increment spam flags -- I guess check moderations for dupes
-//       admin pages for checking bad words and spam:
-//           review session history, unifying across common IP address
-//           ban sessions with optional bulk delete of their submissions
-//           view history of accept, reject, ban, and bulk delete by other admins?
-//
-// BUGS: 
 
 
 // objects returned by PitchGameConnection methods:
@@ -44,7 +25,8 @@ class Pitch extends Challenge
 	public ?string $pitch;
 	public ?string $signature;
 	public ?int    $yourRating;
-	public ?int    $averageRating;
+	public ?float  $averageRating;
+	public ?int    $ratingCount;
 }
 
 class ModerationRequest extends Challenge
@@ -52,6 +34,7 @@ class ModerationRequest extends Challenge
 	public ?int    $moderationId;
 	public ?string $whenRequested;
 	public ?int    $requestorSessionId;
+	public ?int    $flagDupes;
 /*}
 class ModRequestPitch extends ModerationRequest
 {*/
@@ -116,14 +99,16 @@ class SessionSummary
 
 class PitchGameConnection
 {
-	private mysqli  $marie;
-	private bool    $preparedOK = false;
-	private int     $sessionId = 0;
-	private ?string $log = '';				// set to null to disable logging, '' to enable
+	private mysqli    $marie;
+	private bool      $preparedOK = false;
+	private int       $sessionId = 0;
+	private SqlLogger $log;
 
 	// EXTERNALS:
 
-	public string   $lastError = '';
+	public ?string    $defaultSignature;
+	public bool       $isBlocked = false;
+	public string     $lastError = '';
 
 	public function __construct()
 	{
@@ -132,6 +117,7 @@ class PitchGameConnection
 		{
 			$this->marie = new mysqli(null, 'pitchgame', null, 'pitchgame');
 			$this->marie->set_charset('utf8mb4');
+			$this->log = new SqlLogger(true);
 			$this->preparedOK = true;		// none of the preparing has actually been done... this is no longer very meaningful
 		}
 		catch (Throwable $ex)
@@ -152,15 +138,17 @@ class PitchGameConnection
 
 	public function getLog()
 	{
-		return $this->log;
+		return $this->log->log;
 	}
 
 	public function getSessionByToken(string $token)
 	{
 		try
 		{
-			$getSession = new ScalarSelector($this->marie, $this->log, 's', 'SELECT session_id FROM sessions WHERE cookie_token = ?');
-			$this->sessionId = $getSession->select($token);
+			$getSession = new Selector($this->marie, $this->log, 's',
+			    'SELECT session_id, signature, is_blocked FROM sessions WHERE cookie_token = ?');
+			$getSession->select($token);
+			$getSession->getRow($this->sessionId, $this->defaultSignature, $this->isBlocked);
 			return !!$this->sessionId;
 		}
 		catch (Throwable $ex)
@@ -220,64 +208,41 @@ class PitchGameConnection
 		}
 	}
 
-	public function getChallenge()
-	{
-		return $this->getChallengeImpl(true, true, true, true);
-	}
-
-	private function getChallengeImpl(bool $bumpSubject, bool $bumpVerb, bool $bumpObject, bool $commit)
+	// The purpose of the seed is to prevent users frim changing their challenge with the refresh button.
+	public function getChallenge(int $seed)
 	{
 		try
 		{
-			$getChallenge  = new Selector($this->marie, $this->log, '', '
+			$getChallenge  = new Selector($this->marie, $this->log, 'iii', '
 			    WITH sub AS ( SELECT subject_id, word FROM subjects
-			                   WHERE is_deleted = false AND last_shown < date_sub(now(), INTERVAL 1 HOUR)
-			                   ORDER BY shown_ct + 2 * moderation_flag_ct, last_shown
+			                   WHERE is_deleted = false  -- AND last_shown < date_sub(now(), INTERVAL 1 HOUR)
+			                   ORDER BY shown_ct + 4 * moderation_flag_ct, last_shown
 			                   LIMIT 100 ),
 			         vrb AS ( SELECT verb_id, word FROM verbs
-			                   WHERE is_deleted = false AND last_shown < date_sub(now(), INTERVAL 1 HOUR)
-			                   ORDER BY shown_ct + 2 * moderation_flag_ct, last_shown
+			                   WHERE is_deleted = false  -- AND last_shown < date_sub(now(), INTERVAL 1 HOUR)
+			                   ORDER BY shown_ct + 4 * moderation_flag_ct, last_shown
 			                   LIMIT 100 ),
 			         obj AS ( SELECT object_id, word FROM objects
-			                   WHERE is_deleted = false AND last_shown < date_sub(now(), INTERVAL 1 HOUR)
-			                   ORDER BY shown_ct + 2 * moderation_flag_ct, last_shown
+			                   WHERE is_deleted = false  -- AND last_shown < date_sub(now(), INTERVAL 1 HOUR)
+			                   ORDER BY shown_ct + 4 * moderation_flag_ct, last_shown
 			                   LIMIT 100 ),
-			         ras AS ( SELECT subject_id, word FROM sub ORDER BY rand() LIMIT 1 ),
-			         rav AS ( SELECT verb_id, word FROM vrb ORDER BY rand() LIMIT 1 ),
-			         rao AS ( SELECT object_id, word FROM obj ORDER BY rand() LIMIT 1 )
+			         ras AS ( SELECT subject_id, word FROM sub ORDER BY rand(?) LIMIT 1 ),
+			         rav AS ( SELECT verb_id, word    FROM vrb ORDER BY rand(?) LIMIT 1 ),
+			         rao AS ( SELECT object_id, word  FROM obj ORDER BY rand(?) LIMIT 1 )
 			    SELECT subject_id, ras.word AS subject_noun, verb_id, rav.word AS verb, object_id, rao.word AS object_noun
 			      FROM ras, rav, rao');
-			$updateSubject = new Updater($this->marie, $this->log, 'i',
-			    'UPDATE subjects SET last_shown = now(), shown_ct = shown_ct + 1 WHERE subject_id = ?');
-			$updateVerb    = new Updater($this->marie, $this->log, 'i',
-			    'UPDATE verbs    SET last_shown = now(), shown_ct = shown_ct + 1 WHERE verb_id    = ?');
-			$updateObject  = new Updater($this->marie, $this->log, 'i',
-			    'UPDATE objects  SET last_shown = now(), shown_ct = shown_ct + 1 WHERE object_id  = ?');
 
 			$challenge = new Challenge();
-			if ($commit)
-				$this->marie->begin_transaction();
-			if ($getChallenge->select() &&
+			if ($getChallenge->select($seed, $seed, $seed) &&
 			    $getChallenge->getRow($challenge->subjectId, $challenge->subject,
 			                          $challenge->verbId, $challenge->verb,
 			                          $challenge->objectId, $challenge->object))
-			{
-				if ($bumpSubject)
-					$updateSubject->update($challenge->subjectId);
-				if ($bumpVerb)
-					$updateVerb->update($challenge->verbId);
-				if ($bumpObject)
-					$updateObject->update($challenge->objectId);
-				if ($commit)
-					$this->marie->commit();
 				return $challenge;
-			}
 			else
 				throw new Exception('Could not retrieve challenge -- request flood?');
 		}
 		catch (Throwable $ex)
 		{
-			$this->marie->rollback();
 			$this->saveError($ex);
 		}
 	}
@@ -296,7 +261,7 @@ class PitchGameConnection
 			    'INSERT IGNORE INTO moderations (session_id, subject_id, verb_id, object_id) VALUES (?, ?, ?, ?)');
 
 			$this->marie->begin_transaction();
-			$tc = $this->getChallengeImpl($badsubject, $badverb, $badobject, false);
+			$tc = $this->getChallenge($this->sessionId);
 			if ($badsubject || $badverb || $badobject)
 				$addModeration->insert($this->sessionId, $badsubject ? $challenge->subjectId : null,
 				                       $badverb ? $challenge->verbId : null, $badobject ? $challenge->objectId : null);
@@ -327,14 +292,32 @@ class PitchGameConnection
 		}
 	}
 
-	public function addPitch(Challenge &$challenge, string $title, string $pitch, ?string $signature)
+	public function addPitch(Challenge &$challenge, string $title, string $pitch, ?string $signature, bool $setDefaultSig)
 	{
 		try
 		{
 			$addPitch = new Inserter($this->marie, $this->log, 'iiiisss',
 			    'INSERT IGNORE INTO pitches (session_id, subject_id, verb_id, object_id, title, pitch, signature) VALUES (?, ?, ?, ?, ?, ?, ?)');
+			$updateSubject = new Updater($this->marie, $this->log, 'i',
+			    'UPDATE subjects SET last_shown = now(), shown_ct = shown_ct + 1 WHERE subject_id = ?');
+			$updateVerb    = new Updater($this->marie, $this->log, 'i',
+			    'UPDATE verbs    SET last_shown = now(), shown_ct = shown_ct + 1 WHERE verb_id    = ?');
+			$updateObject  = new Updater($this->marie, $this->log, 'i',
+			    'UPDATE objects  SET last_shown = now(), shown_ct = shown_ct + 1 WHERE object_id  = ?');
+
+			// should we make this a transaction?  probably not necessary
 			$addPitch->insert($this->sessionId, $challenge->subjectId, $challenge->verbId,
 			                  $challenge->objectId, $title, $pitch, $signature);
+			$updateSubject->update($challenge->subjectId);
+			$updateVerb->update($challenge->verbId);
+			$updateObject->update($challenge->objectId);
+			if ($setDefaultSig)
+			{
+				$setSignature = new Updater($this->marie, $this->log, 'si',
+				    'UPDATE sessions SET signature = ? WHERE session_id = ?');
+				$setSignature->update($signature, $this->sessionId);
+				$this->defaultSignature = $signature;
+			}
 			return true;		// allow dupe inserts to fail silently
 		}
 		catch (Throwable $ex)
@@ -343,14 +326,15 @@ class PitchGameConnection
 		}
 	}
 
-	public function getPitchesToReview()
+	public function getPitchesToReview(int $seed)
 	{
 		try
 		{
-			$getPitches = new Selector($this->marie, $this->log, 'ii', '
+			// XXX sometimes nonperformant, inteittently:
+			$getPitches = new Selector($this->marie, $this->log, 'iii', '
 			    WITH pits AS ( SELECT pitch_id, subject_id, verb_id, object_id, title, pitch, signature FROM pitches p
 			                    WHERE is_deleted = false
-			                      AND last_shown < date_sub(now(), INTERVAL 1 HOUR)
+			                      -- AND last_shown < date_sub(now(), INTERVAL 1 HOUR)
 			                      AND session_id <> ?
 			                      AND NOT EXISTS ( SELECT rating_id FROM ratings r
 			                                        WHERE r.pitch_id = p.pitch_id AND r.session_id = ? )
@@ -362,12 +346,12 @@ class PitchGameConnection
 			      FROM pits JOIN subjects s USING (subject_id)
 			                JOIN verbs v USING (verb_id)
 			                JOIN objects o USING (object_id)
-			     ORDER BY rand() LIMIT 4');   // limit can’t be parameterized, apparently
+			     ORDER BY rand(?) LIMIT 4');   // limit can’t be parameterized, apparently
 			$updatePitch = new Updater($this->marie, $this->log, 'i',
 			    'UPDATE pitches SET last_shown = now(), shown_ct = shown_ct + 1 WHERE pitch_id  = ?');
 
 			$this->marie->begin_transaction();
-			$getPitches->select($this->sessionId, $this->sessionId);
+			$getPitches->select($this->sessionId, $this->sessionId, $seed);
 			$result = [];
 			do
 			{
@@ -391,28 +375,36 @@ class PitchGameConnection
 		}
 	}
 
+	// Because ratePitch gets called in a loop, we persust these statements outside it.
+	private ?Inserter $addRating = null;
+	//private ?Updater  $removeRating;
+	private ?Updater  $markPitch;
+	private ?Inserter $addModeration;
+
 	public function ratePitch(int $pitchId, int $rating)
 	{
 		try
 		{
-			// TODO:  since this is called in a loop, move these statements to class level
-			$addRating = new Inserter($this->marie, $this->log, 'iii',
-			    'INSERT IGNORE INTO ratings (pitch_id, session_id, rating) VALUES (?, ?, ?)');
-			//$removeRating = new Updater($this->marie, $this->log, 'ii',
-			//    'DELETE FROM ratings WHERE pitch_id = ? and session_id = ?');
-			$markPitch = new Updater($this->marie, $this->log, 'i',
-			    'UPDATE pitches SET moderation_flag_ct = moderation_flag_ct + 1 WHERE pitch_id = ?');
-			$addModeration = new Inserter($this->marie, $this->log, 'ii',
-			    'INSERT IGNORE INTO moderations (session_id, pitch_id) VALUES (?, ?)');
-
 			if ((int) $rating < -1 || (int) $rating > 4)
 				throw new Exception("Rating '$rating' for pitch $pitchId out of range");
+			if (!$this->addRating)
+			{
+				$this->addRating = new Inserter($this->marie, $this->log, 'iii',
+				    'INSERT IGNORE INTO ratings (pitch_id, session_id, rating) VALUES (?, ?, ?)');
+				//$this->removeRating = new Updater($this->marie, $this->log, 'ii',
+				//    'DELETE FROM ratings WHERE pitch_id = ? and session_id = ?');
+				$this->markPitch = new Updater($this->marie, $this->log, 'i',
+				    'UPDATE pitches SET moderation_flag_ct = moderation_flag_ct + 1 WHERE pitch_id = ?');
+				$this->addModeration = new Inserter($this->marie, $this->log, 'ii',
+				    'INSERT IGNORE INTO moderations (session_id, pitch_id) VALUES (?, ?)');
+			}
 			//if (!(int) $rating)
-			//	$removeRating->update($pitchId, $this->sessionId);
+			//	$this->removeRating->update($pitchId, $this->sessionId);
 			//else
-			$r = $addRating->insert($pitchId, $this->sessionId, $rating);
+			$r = $this->addRating->insert($pitchId, $this->sessionId, $rating);
 			if ($r && $rating < 0)
-				return $markPitch->update($pitchId) && $addModeration->insert($this->sessionId, $pitchId);
+				return $this->markPitch->update($pitchId) &&
+				       $this->addModeration->insert($this->sessionId, $pitchId);
 			return true;
 		}
 		catch (Throwable $ex)
@@ -421,15 +413,16 @@ class PitchGameConnection
 		}
 	}
 
-	public function getOldFavoritePitches()
+	public function getOldFavoritePitches($seed)
 	{
 		try
 		{
-			$getPitches = new Selector($this->marie, $this->log, 'ii', '
+			// XXX this can be nonperformant
+			$getPitches = new Selector($this->marie, $this->log, 'iii', '
 			    WITH pits AS ( SELECT pitch_id, subject_id, verb_id, object_id, title, pitch, signature, rating
 		                         FROM pitches p JOIN ratings r USING (pitch_id)
 			                    WHERE is_deleted = false
-			                      AND last_shown < date_sub(now(), INTERVAL 1 HOUR)
+			                      -- AND last_shown < date_sub(now(), INTERVAL 1 HOUR)
 			                      AND p.session_id <> ?
 			                      AND r.session_id = ?
 			                      AND rating >= 3
@@ -439,20 +432,23 @@ class PitchGameConnection
 			           s.word as subject_noun, v.word as verb, o.word as object_noun,
 			           title, pitch, signature, rating,
 			           ( SELECT avg(rating) FROM ratings rr
-			              WHERE rr.pitch_id = pits.pitch_id ) as avg_rating
+			              WHERE rr.pitch_id = pits.pitch_id ) AS avg_rating,
+			           ( SELECT count(rating) FROM ratings rrr
+			              WHERE rrr.pitch_id = pits.pitch_id ) AS rating_ct
 			      FROM pits JOIN subjects s USING (subject_id)
 			                JOIN verbs v USING (verb_id)
 			                JOIN objects o USING (object_id)
-			     ORDER BY rand() LIMIT 3');
+			     ORDER BY rand(?) LIMIT 3');
 
-			$getPitches->select($this->sessionId, $this->sessionId);
+			$getPitches->select($this->sessionId, $this->sessionId, $seed);
 			$results = [];
 			do
 			{
 				$pitch = new Pitch();
 				$gotten = $getPitches->getRow($pitch->pitchId, $pitch->subjectId, $pitch->verbId, $pitch->objectId,
 				                              $pitch->subject, $pitch->verb, $pitch->object,
-				                              $pitch->title, $pitch->pitch, $pitch->signature, $pitch->yourRating);
+				                              $pitch->title, $pitch->pitch, $pitch->signature,
+				                              $pitch->yourRating, $pitch->averageRating, $pitch->ratingCount);
 				if ($gotten)
 					$results[] = $pitch;
 			} while ($gotten);
@@ -469,7 +465,7 @@ class PitchGameConnection
 		try
 		{
 			$getRequests = new Selector($this->marie, $this->log, '', '
-			    WITH ten AS ( SELECT moderation_id, m.session_id, m.when_submitted, pitch_id,
+			    WITH mrq AS ( SELECT moderation_id, pitch_id,
 			                         m.subject_id, min(s.suggestion_id) AS subj_sugg, count(s.suggestion_id) AS subj_dupe,
 			                         m.verb_id,    min(v.suggestion_id) AS verb_sugg, count(v.suggestion_id) AS verb_dupe,
 			                         m.object_id,  min(o.suggestion_id) AS obj_sugg,  count(o.suggestion_id) AS obj_dupe
@@ -486,10 +482,20 @@ class PitchGameConnection
 			                                   WHERE object_id = m.object_id AND is_deleted = false AND moderation_status IS NULL
 			                                  UNION SELECT 1 from pitches
 			                                   WHERE pitch_id = m.pitch_id AND is_deleted = false AND moderation_status IS NULL )
-			                   GROUP BY moderation_id, when_submitted, pitch_id, subject_id, verb_id, object_id
-			                   ORDER BY when_submitted DESC, moderation_id DESC
+			                   GROUP BY moderation_id, when_submitted, pitch_id, subject_id, verb_id, object_id ),
+			         muq as ( SELECT pitch_id, subject_id, verb_id, object_id,
+			                         subj_sugg, verb_sugg, obj_sugg, subj_dupe, verb_dupe, obj_dupe,
+			                         count(DISTINCT moderation_id) AS flag_dupe,
+			                         max(moderation_id) AS last_req_id, min(moderation_id) AS first_req_id
+			                    FROM mrq GROUP BY pitch_id, subject_id, verb_id, object_id,
+			                                      subj_sugg, verb_sugg, obj_sugg, subj_dupe, verb_dupe, obj_dupe ),
+			         ten as ( SELECT moderation_id, session_id, when_submitted,
+			                         muq.pitch_id, muq.subject_id, muq.verb_id, muq.object_id,
+			                         subj_sugg, verb_sugg, obj_sugg, subj_dupe, verb_dupe, obj_dupe, flag_dupe
+			                    FROM muq INNER JOIN moderations ON last_req_id = moderation_id
+			                   ORDER BY last_req_id - first_req_id DESC, moderation_id DESC
 			                   LIMIT 10 )
-			    SELECT ten.moderation_id, ten.when_submitted, ten.session_id AS requestor_session_id,
+			    SELECT ten.moderation_id, ten.when_submitted, ten.session_id AS requestor_session_id, ten.flag_dupe,
 			           p.session_id AS pitch_session_id, ss.session_id AS subject_session_id,
 			           sv.session_id AS verb_session_id, so.session_id AS object_session_id,
 			           p.moderation_flag_ct AS pitch_flag_ct, s.moderation_flag_ct AS subj_flag_ct,
@@ -513,10 +519,10 @@ class PitchGameConnection
 			           suggestions so ON ten.obj_sugg  = so.suggestion_id');
 
 			$getRequests->select();
-			$tesults = [];
+			$results = [];
 			do {
 				$rq = new ModerationRequest();
-				$gotten = $getRequests->getRow($rq->moderationId, $rq->whenRequested, $rq->requestorSessionId,
+				$gotten = $getRequests->getRow($rq->moderationId, $rq->whenRequested, $rq->requestorSessionId, $rq->flagDupes,
 				                               $rq->pitchSessionId, $rq->subjectSessionId, $rq->verbSessionId, $rq->objectSessionId,
 				                               $rq->pitchFlagCount, $rq->subjectFlagCount, $rq->verbFlagCount, $rq->objectFlagCount,
 				                               $rq->whenPitched, $rq->whenSubject, $rq->whenVerb, $rq->whenObject,
@@ -534,6 +540,18 @@ class PitchGameConnection
 		}
 	}
 
+	// Because saveJudgment gets called in a loop, we persist these statements outside it.
+	private ?Updater $absolvePitch = null;
+	private ?Updater $judgePitch;
+	private ?Updater $absolveSubject;
+	private ?Updater $judgeSubject;
+	private ?Updater $absolveVerb;
+	private ?Updater $judgeVerb;
+	private ?Updater $absolveObject;
+	private ?Updater $judgeObject;
+	private ?Updater $acceptRequest;
+	private ?Updater $rejectRequest;
+
 	public function saveJudgment(ModerationRequest $modreq, ?string $judgmentP, ?string $judgmentS, ?string $judgmentV, ?string $judgmentO)
 	{
 		$code = null;
@@ -542,41 +560,43 @@ class PitchGameConnection
 		try
 		{
 			// I don't think I'll transactionalize this.
-			// TODO:  since this is called in a loop, move these statements to class level
-			$absolvePitch = new Updater($this->marie, $this->log, 'i',
-			    'UPDATE pitches SET moderation_flag_ct = 0, moderation_status = NULL WHERE pitch_id = ?');
-			$judgePitch = new Updater($this->marie, $this->log, 'isi',
-			    'UPDATE pitches SET is_deleted = ?, moderation_status = ? WHERE pitch_id = ?');
-			$absolveSubject = new Updater($this->marie, $this->log, 'i',
-			    'UPDATE subjects SET moderation_flag_ct = 0, moderation_status = NULL WHERE subject_id = ?');
-			$judgeSubject = new Updater($this->marie, $this->log, 'isi',
-			    'UPDATE subjects SET is_deleted = ?, moderation_status = ? WHERE subject_id = ?');
-			$absolveVerb = new Updater($this->marie, $this->log, 'i',
-			    'UPDATE verbs SET moderation_flag_ct = 0, moderation_status = NULL WHERE verb_id = ?');
-			$judgeVerb = new Updater($this->marie, $this->log, 'isi',
-			    'UPDATE verbs SET is_deleted = ?, moderation_status = ? WHERE verb_id = ?');
-			$absolveObject = new Updater($this->marie, $this->log, 'i',
-			    'UPDATE objects SET moderation_flag_ct = 0, moderation_status = NULL WHERE object_id = ?');
-			$judgeObject = new Updater($this->marie, $this->log, 'isi',
-			    'UPDATE objects SET is_deleted = ?, moderation_status = ? WHERE object_id = ?');
-			// acceptRequest and rejectRequest may both be used; if so, leave both fields set to indicate mixed outcome
-			$acceptRequest = new Updater($this->marie, $this->log, 'ii',
-			    'UPDATE moderations SET accepted_by = ? WHERE moderation_id = ?');
-			$rejectRequest = new Updater($this->marie, $this->log, 'ii',
-			    'UPDATE moderations SET rejected_by = ? WHERE moderation_id = ?');
-
+			// In hindsight, I wish I'd made a common base table for subjects, verbs  objects, and pitches.  Need a way to DRY this out.
+			if (!$this->absolvePitch)
+			{
+				$this->absolvePitch = new Updater($this->marie, $this->log, 'i',
+				    'UPDATE pitches SET moderation_flag_ct = 0, moderation_status = NULL WHERE pitch_id = ?');
+				$this->judgePitch = new Updater($this->marie, $this->log, 'isi',
+				    'UPDATE pitches SET is_deleted = ?, moderation_status = ? WHERE pitch_id = ?');
+				$this->absolveSubject = new Updater($this->marie, $this->log, 'i',
+				    'UPDATE subjects SET moderation_flag_ct = 0, moderation_status = NULL WHERE subject_id = ?');
+				$this->judgeSubject = new Updater($this->marie, $this->log, 'isi',
+				    'UPDATE subjects SET is_deleted = ?, moderation_status = ? WHERE subject_id = ?');
+				$this->absolveVerb = new Updater($this->marie, $this->log, 'i',
+				    'UPDATE verbs SET moderation_flag_ct = 0, moderation_status = NULL WHERE verb_id = ?');
+				$this->judgeVerb = new Updater($this->marie, $this->log, 'isi',
+				    'UPDATE verbs SET is_deleted = ?, moderation_status = ? WHERE verb_id = ?');
+				$this->absolveObject = new Updater($this->marie, $this->log, 'i',
+				    'UPDATE objects SET moderation_flag_ct = 0, moderation_status = NULL WHERE object_id = ?');
+				$this->judgeObject = new Updater($this->marie, $this->log, 'isi',
+				    'UPDATE objects SET is_deleted = ?, moderation_status = ? WHERE object_id = ?');
+				// acceptRequest and rejectRequest may both be used; if so, leave both fields set to indicate mixed outcome
+				$this->acceptRequest = new Updater($this->marie, $this->log, 'ii',
+				    'UPDATE moderations SET accepted_by = ? WHERE moderation_id = ?');
+				$this->rejectRequest = new Updater($this->marie, $this->log, 'ii',
+				    'UPDATE moderations SET rejected_by = ? WHERE moderation_id = ?');
+			}
 			if ($modreq->pitchId && $judgmentP)
 			{
 				$this->interpretJudgment($judgmentP, $delete, $reject, $code);
 				if ($reject)
 				{
-					$absolvePitch->update($modreq->pitchId);
-					$rejectRequest->update($this->sessionId, $modreq->moderationId);
+					$this->absolvePitch->update($modreq->pitchId);
+					$this->rejectRequest->update($this->sessionId, $modreq->moderationId);
 				}
 				else
 				{
-					$judgePitch->update($delete, $code, $modreq->pitchId);
-					$acceptRequest->update($this->sessionId, $modreq->moderationId);
+					$this->judgePitch->update($delete, $code, $modreq->pitchId);
+					$this->acceptRequest->update($this->sessionId, $modreq->moderationId);
 				}
 			}
 			if ($modreq->subjectId && $judgmentS)
@@ -584,13 +604,13 @@ class PitchGameConnection
 				$this->interpretJudgment($judgmentS, $delete, $reject, $code);
 				if ($reject)
 				{
-					$absolveSubject->update($modreq->subjectId);
-					$rejectRequest->update($this->sessionId, $modreq->moderationId);
+					$this->absolveSubject->update($modreq->subjectId);
+					$this->rejectRequest->update($this->sessionId, $modreq->moderationId);
 				}
 				else
 				{
-					$judgeSubject->update($delete, $code, $modreq->subjectId);
-					$acceptRequest->update($this->sessionId, $modreq->moderationId);
+					$this->judgeSubject->update($delete, $code, $modreq->subjectId);
+					$this->acceptRequest->update($this->sessionId, $modreq->moderationId);
 				}
 			}
 			if ($modreq->verbId && $judgmentV)
@@ -598,13 +618,13 @@ class PitchGameConnection
 				$this->interpretJudgment($judgmentV, $delete, $reject, $code);
 				if ($reject)
 				{
-					$absolveVerb->update($modreq->verbId);
-					$rejectRequest->update($this->sessionId, $modreq->moderationId);
+					$this->absolveVerb->update($modreq->verbId);
+					$this->rejectRequest->update($this->sessionId, $modreq->moderationId);
 				}
 				else
 				{
-					$judgeVerb->update($delete, $code, $modreq->verbId);
-					$acceptRequest->update($this->sessionId, $modreq->moderationId);
+					$this->judgeVerb->update($delete, $code, $modreq->verbId);
+					$this->acceptRequest->update($this->sessionId, $modreq->moderationId);
 				}
 			}
 			if ($modreq->objectId && $judgmentO)
@@ -612,13 +632,13 @@ class PitchGameConnection
 				$this->interpretJudgment($judgmentO, $delete, $reject, $code);
 				if ($reject)
 				{
-					$absolveObject->update($modreq->objectId);
-					$rejectRequest->update($this->sessionId, $modreq->moderationId);
+					$this->absolveObject->update($modreq->objectId);
+					$this->rejectRequest->update($this->sessionId, $modreq->moderationId);
 				}
 				else
 				{
-					$judgeObject->update($delete, $code, $modreq->objectId);
-					$acceptRequest->update($this->sessionId, $modreq->moderationId);
+					$this->judgeObject->update($delete, $code, $modreq->objectId);
+					$this->acceptRequest->update($this->sessionId, $modreq->moderationId);
 				}
 			}
 			return true;
@@ -641,8 +661,9 @@ class PitchGameConnection
 				break;
 			case 'Non-noun':
 			case 'Non-verb':
-			case 'Spam':
 			case 'Gibberish':
+			case 'Spam':
+			case 'Evil':
 				$delete = true;
 				$code = $judgment;
 				break;
@@ -707,7 +728,7 @@ class PitchGameConnection
 		if ($ex)
 			error_log(formatThrowable($ex, true));
 		if (!$this->lastError && $ex)
-			$this->lastError = formatThrowable($ex) . "\n\n" . $this->log;
+			$this->lastError = formatThrowable($ex) . "\n\n" . $this->log->log;
 	}
 }
 
