@@ -23,6 +23,15 @@ function showHints(ev)
 	return false;
 }
 
+function showLog(ev)
+{
+	var log = document.getElementById('theLog');
+	log.style.display = 'block';
+	ev.preventDefault();
+	ev.stopPropagation();
+	return false;
+}
+
 function showSessionSummary(ev)
 {
 	var sessionId = this.id.substring(8);
@@ -95,6 +104,9 @@ function init()
 	var showhints = document.getElementById('showhints');
 	if (showhints)
 		showhints.addEventListener('click', showHints);
+	var showlog = document.getElementById('showLog');
+	if (showlog)
+		showlog.addEventListener('click', showLog);
 	var closers = document.getElementsByClassName('closer');
 	for (var i = 0; i < closers.length; i++)
 		closers[i].addEventListener('click', closer);
