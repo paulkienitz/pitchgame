@@ -1,155 +1,159 @@
 <!DOCTYPE html>
 <?php
-	// This page is for moderators and administrators.  Set it to be accessible only with a password.
+// This page is for moderators and administrators.  Set it to be accessible only with a password.
 
-	// TODO: start with master list of moderation stats and links: requests, iffy users, ?
-	//       implement user history review with block and delete options
+// TODO: start with master list of moderation stats and links: requests, iffy users, ?
+//       implement user history review with block and delete options
 
-	require 'pitchdata.php';
+require 'pitchdata.php';
 
-	$pagestate = 0;			// 0 = FOR NOW, list of outstanding moderation requests, 1 = user summary
-	$con = new PitchGameConnection();		// defined in pitchdata.php
+$pagestate = 0;			// 0 = FOR NOW, list of outstanding moderation requests, 1 = user summary
+$con = new PitchGameConnection();		// defined in pitchdata.php
 
-	$validationFailed = false;
-	$databaseFailed = !$con->isReady();
+$validationFailed = false;
+$databaseFailed = !$con->isReady();
 
-	$resolved = 0;
+$resolved = 0;
 
-	function myIP()
+function myIP()
+{
+	return $_SERVER['HTTP_CLIENT_IP'] ?? $_SERVER['HTTP_X_FORWARDED_FOR'] ?? $_SERVER['REMOTE_ADDR'];
+}
+
+function enc(?string $str)
+{
+	return htmlspecialchars($str, ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5);
+}
+
+function englishNumber(int $n)
+{
+	$words = explode(' ', 'zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty');
+	return array_key_exists($n, $words) ? $words[$n] : (string) $n;
+}
+
+
+function describeBrowser(string $userAgent)
+{
+	// get_browser is not available on my PHP host, so let's recognize the main browsers only
+	if (preg_match('/MSIE \d+/', $userAgent))
+		$browser = 'IE (old)';
+	else if (preg_match('/Trident\/7/', $userAgent))
+		$browser = 'IE 11 or early Edge';
+	else if (preg_match('/ Firefox\/\S+$/', $userAgent))
+		$browser = 'Firefox';
+	else if (preg_match('/ Safari\/\S$/', $userAgent))
+		$browser = 'Safari';
+	else if (preg_match('/ Edg\w*\/\S+$/', $userAgent))
+		$browser = 'Edge';
+	else if (preg_match('/ Chrome\/.* Safari/', $userAgent))
+		$browser = 'Chrome';
+	else
+		$browser = 'unrecognized';
+	return '<span class=browse title="' . enc($userAgent) . '">' . $browser . '</span>';
+}
+
+function warn(?int $number, string $description)
+{
+	if ($number <= 0)
+		return "$number $description";
+	else
+		return "<span class=warn>$number $description</span>";
+}
+
+function countAndRange(int $count, ?string $earliest, ?string $latest)
+{
+	if ($count > 1)
+		return "$count&ensp;from&ensp;$earliest&ensp;to&ensp;$latest";
+	else
+		return $count == 1 ? "$count&ensp;on&ensp;$earliest" : 'none';
+}
+
+function showFlagDelMod(int $shown, int $flagged, int $deleted, int $moderated)
+{
+	return $shown . ' shown, ' . warn($flagged, 'flagged') . ', ' . warn($deleted, 'deleted') . ', ' . warn($moderated, 'moderated');
+}
+
+function slink(int $sessionId)
+{
+	return "<a href='' id='session_$sessionId' class=slinky>user $sessionId</a>";
+}
+
+function attribution(int $id, string $when, int $sessionId, int $flagCount)
+{
+	return "$id, submitted $when by " . slink($sessionId) . 
+	       ($flagCount > 1 ? ", has $flagCount flags" : '');
+}
+
+function askWord(string $kind, int $id, string $when, int $sessionId, int $flagCount, int $dupes, string $word, int $moderationId)
+{
+	$rat = "type=radio name='modreq_$kind[0]_$moderationId'";
+	$partOfSpeech = $kind == 'Verb' ? 'verb' : 'noun';
+	return "<div>— $kind " . attribution($id, $when, $sessionId, $flagCount) .
+	       ($dupes > 1 ? ", $dupes dupes" : '') .
+	       "</div>\n<div class=qq>Is <span class=lit>“" . enc($word) .
+	       "”</span> a valid $partOfSpeech?</div>\n<div>" .
+	       "<label><input $rat value='Valid' /> Valid</label>" .
+	       "<label><input $rat value='Spelling' /> Misspelled</label>" .
+	       "<label><input $rat value='Non-$partOfSpeech' /> Not a $partOfSpeech, DELETE</label>" .
+	       "<label><input $rat value='Gibberish' /> Gibberish, DELETE</label>" .
+	       "<label><input $rat value='Spam' /> Spam, DELETE</label>" .
+	       "<label><input $rat value='Evil' /> Hate or Crime, DELETE</label>" .
+	       "<label><input $rat value='' checked /> (no answer)</label></div>\n";
+}
+
+
+// ---- process get/post args and do DB operations
+
+if (!$databaseFailed)
+{
+	if (!isset($_COOKIE['pitchgame']) || !$con->getSessionByToken($_COOKIE['pitchgame']))
 	{
-		return $_SERVER['HTTP_CLIENT_IP'] ?? $_SERVER['HTTP_X_FORWARDED_FOR'] ?? $_SERVER['REMOTE_ADDR'];
-	}
-
-	function enc(string $str)
-	{
-		return htmlspecialchars($str, ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5);
-	}
-
-	function englishNumber(int $n)
-	{
-		$words = explode(' ', 'zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty');
-		return array_key_exists($n, $words) ? $words[$n] : (string) $n;
-	}
-
-
-	function describeBrowser(string $userAgent)
-	{
-		// get_browser is not available on my PHP host, so let's recognize the main browsers only
-		if (preg_match('/MSIE \d+/', $userAgent))
-			$browser = 'IE (old)';
-		else if (preg_match('/Trident\/7/', $userAgent))
-			$browser = 'IE 11 or early Edge';
-		else if (preg_match('/ Chrome\/.* Safari/', $userAgent))
-			$browser = 'Chrome';
-		else if (preg_match('/ Firefox\/\S+$/', $userAgent))
-			$browser = 'Firefox';
-		else if (preg_match('/ Safari\/\S$/', $userAgent))
-			$browser = 'Safari';
-		else if (preg_match('/ Edg\w*\/\S+$/', $userAgent))
-			$browser = 'Edge';
+		$token = $con->makeSession(myIP(), $_SERVER['HTTP_USER_AGENT']);
+		if ($token)
+			setcookie('pitchgame', $token);
 		else
-			$browser = 'unrecognized';
-		return '<span class=browse title="' . enc($userAgent) . '">' . $browser . '</span>';
+			$databaseFailed = true;
 	}
+	// else update ip_address and when_last_used?
+}
+else
+	$con->lastError = "Database connection failed — $con->lastError";
 
-	function warn(?int $number, string $description)
+if (isset($_GET['sessionId']) && !$databaseFailed)
+{
+	$sessionId = (int) $_GET['sessionId'];
+	$userSummary = $con->sessionStats($sessionId);
+	$pagestate = 1;
+}
+else if (isset($_POST['formtype']) && !$databaseFailed)		// extract form values, validate, and update
+{
+	if ($_POST['formtype'] == 'judgerequests')
+	$moderationRequests = unserialize($_POST['moderationrequests']);
+	foreach ($moderationRequests as $rq)
 	{
-		if ($number <= 0)
-			return "$number $description";
-		else
-			return "<span class=warn>$number $description</span>";
+		$judgmentP = $_POST["modreq_P_$rq->moderationId"];
+		$judgmentS = $_POST["modreq_S_$rq->moderationId"];
+		$judgmentV = $_POST["modreq_V_$rq->moderationId"];
+		$judgmentO = $_POST["modreq_O_$rq->moderationId"];
+		if (!$con->saveJudgment($rq, $judgmentP, $judgmentS, $judgmentV, $judgmentO))
+			$databaseFailed = true;
+		else if ($judgmentP || $judgmentS || $judgmentV || $judgmentO)
+			$resolved++;
 	}
-
-	function countAndRange(int $count, ?string $earliest, ?string $latest)
-	{
-		if ($count > 1)
-			return "$count&ensp;from&ensp;$earliest&ensp;to&ensp;$latest";
-		else
-			return $count == 1 ? "$count&ensp;on&ensp;$earliest" : 'none';
-	}
-
-	function showFlagDelMod(int $shown, int $flagged, int $deleted, int $moderated)
-	{
-		return $shown . ' shown, ' . warn($flagged, 'flagged') . ', ' . warn($deleted, 'deleted') . ', ' . warn($moderated, 'moderated');
-	}
-
-	function slink(int $sessionId)
-	{
-		return "<a href='' id='session_$sessionId' class=slinky>user $sessionId</a>";
-	}
-
-	function attribution(int $id, string $when, int $sessionId, int $flagCount)
-	{
-		return "$id, submitted $when by " . slink($sessionId) . 
-		       ($flagCount > 1 ? ", has $flagCount flags" : '');
-	}
-
-	function askWord(string $kind, int $id, string $when, int $sessionId, int $flagCount, int $dupes, string $word, int $moderationId)
-	{
-		$rat = "type=radio name='modreq_$kind[0]_$moderationId'";
-		$partOfSpeech = $kind == 'Verb' ? 'verb' : 'noun';
-		return "<div>— $kind " . attribution($id, $when, $sessionId, $flagCount) .
-		       ($dupes > 1 ? ", $dupes dupes" : '') .
-		       "</div>\n<div class=qq>Is <span class=lit>“" . enc($word) .
-		       "”</span> a valid $partOfSpeech?</div>\n<div>" .
-		       "<label><input $rat value='Valid' /> Valid</label>" .
-		       "<label><input $rat value='Spelling' /> Misspelled</label>" .
-		       "<label><input $rat value='Non-$partOfSpeech' /> Not a $partOfSpeech, DELETE</label>" .
-		       "<label><input $rat value='Gibberish' /> Gibberish, DELETE</label>" .
-		       "<label><input $rat value='' /> (no answer)</label></div>\n";
-	}
-
-
-	// ---- process get/post args and do DB operations
-
 	if (!$databaseFailed)
 	{
-		if (!isset($_COOKIE['pitchgame']) || !$con->getSessionByToken($_COOKIE['pitchgame']))
-		{
-			$token = $con->makeSession(myIP(), $_SERVER['HTTP_USER_AGENT']);
-			if ($token)
-				setcookie('pitchgame', $token);
-			else
-				$databaseFailed = true;
-		}
-		// else update ip_address and when_last_used?
-	}
-	else
-		$con->lastError = "Database connection failed — $con->lastError";
-
-	if (isset($_GET['sessionId']) && !$databaseFailed)
-	{
-		$sessionId = (int) $_GET['sessionId'];
-		$userSummary = $con->sessionStats($sessionId);
-		$pagestate = 1;
-	}
-	else if (isset($_POST['formtype']) && !$databaseFailed)		// extract form values, validate, and update
-	{
-		if ($_POST['formtype'] == 'judgerequests')
-		$moderationRequests = unserialize($_POST['moderationrequests']);
-		foreach ($moderationRequests as $rq)
-		{
-			$judgmentP = $_POST["modreq_P_$rq->moderationId"];
-			$judgmentS = $_POST["modreq_S_$rq->moderationId"];
-			$judgmentV = $_POST["modreq_V_$rq->moderationId"];
-			$judgmentO = $_POST["modreq_O_$rq->moderationId"];
-			if (!$con->saveJudgment($rq, $judgmentP, $judgmentS, $judgmentV, $judgmentO))
-				$databaseFailed = true;
-			else if ($judgmentP || $judgmentS || $judgmentV || $judgmentO)
-				$resolved++;
-		}
-		if (!$databaseFailed)
-		{
-			// refresh the list
-			$moderationRequests = $con->getRecentModerationRequests();
-			$pagestate = 0;
-		}
-	}
-	else
-	{
+		// refresh the list
 		$moderationRequests = $con->getRecentModerationRequests();
+		$databaseFailed = !is_array($moderationRequests);
 		$pagestate = 0;
 	}
+}
+else
+{
+	$moderationRequests = $con->getRecentModerationRequests();
+	$databaseFailed = !is_array($moderationRequests);
+	$pagestate = 0;
+}
 ?>
 <html>
 <head>
@@ -189,7 +193,7 @@
 	will investigate the problem and try to prevent recurrences.
 
 	</p>
-	<div class=exceptional><?=nl2br(enc($con->lastError ?: $con->getLog()))?></div>
+	<div class=exceptional><?=nl2br(enc($con->lastError))?></div>
 
 <?php } else if ($pagestate == 0 && $moderationRequests && count($moderationRequests)) { ?>
 
@@ -211,8 +215,11 @@
 		<input type=hidden name=moderationrequests value="<?=enc(serialize($moderationRequests))?>" />
 	<?php foreach ($moderationRequests as $modreq) { ?>
 		<div class=fields>
-			<p>(#<?=$modreq->moderationId?>) At <?=$modreq->whenRequested?>,
-			   <?=slink($modreq->requestorSessionId)?> flagged this:</p>
+			<p>#<?=$modreq->moderationId?> → At <?=$modreq->whenRequested?>,
+			   <?=slink($modreq->requestorSessionId)?>
+			   <?=$modreq->flagDupes > 2 ? '(and ' . englishNumber($modreq->flagDupes - 1) . ' others)' :
+			      ($modreq->flagDupes > 1 ? '(and one other)' : '')?>
+			   flagged this:</p>
 		<?php if ($modreq->pitchId) { ?>
 			<div>
 				— Pitch <?=attribution($modreq->pitchId, $modreq->whenPitched, $modreq->pitchSessionId, $modreq->pitchFlagCount)?>:
@@ -229,9 +236,10 @@
 			<div>
 			<label><input type=radio name='modreq_P_<?=$modreq->moderationId?>' value='Valid' /> Valid</label>
 			<label><input type=radio name='modreq_P_<?=$modreq->moderationId?>' value='Dubious' /> Dubious</label>
-			<label><input type=radio name='modreq_P_<?=$modreq->moderationId?>' value='Spam' /> Spam, DELETE</label>
 			<label><input type=radio name='modreq_P_<?=$modreq->moderationId?>' value='Gibberish' /> Gibberish, DELETE</label>
-			<label><input type=radio name='modreq_P_<?=$modreq->moderationId?>' value='' /> (no answer)</label>
+			<label><input type=radio name='modreq_P_<?=$modreq->moderationId?>' value='Spam' /> Spam, DELETE</label>
+			<label><input type=radio name='modreq_P_<?=$modreq->moderationId?>' value='Evil' /> Hate or Crime, DELETE</label>
+			<label><input type=radio name='modreq_P_<?=$modreq->moderationId?>' value='' checked /> (no answer)</label>
 			</div>
 		<?php } else {
 			if ($modreq->subjectId)
@@ -250,7 +258,6 @@
 			<button>Pronounce your Judgments</button>
 		</p>
 	</form>
-	<!-- div class=exceptional><?=nl2br(enc($con->getLog()))?></div -->
 
 <?php } else if ($pagestate == 0) { ?>
 
@@ -265,7 +272,6 @@
 	<p>No outstanding moderation requests found.&ensp;Thanks for checking.</p>
 	
 	<?php } ?>
-	<!-- div class=exceptional><?=nl2br(enc($con->getLog()))?></div -->
 
 <?php } else if ($pagestate == 1 && !$userSummary) { ?>
 
@@ -308,11 +314,18 @@
 			    <td><?=$userSummary->modRequestsAcceptedCount?> accepted, <?=$userSummary->modRequestsRejectedCount?> rejected.</td>
 			</tr>
 	<?php } ?>
-		</table
+		</table>
 	</div>
 
 <?php } ?>
 </main>
+
+<p style='margin-top: 2em'>
+	<a href='' id=showLog class=meta>show log</a>
+</p>
+<p id=theLog class=exceptional style='display: none'>
+	<?=nl2br(enc($con->getLog() ?: 'no log entries recorded'))?>
+</p>
 
 </body>
 </html>
