@@ -6,59 +6,59 @@ ALTER DATABASE pitchgame DEFAULT CHARACTER SET utf8mb4 DEFAULT COLLATE utf8mb4_u
 -- This would require renumbering all four tables, ouch... I think that ship has sailed.
 
 CREATE TABLE pitchgame.subjects (
-  subject_id          int           NOT NULL AUTO_INCREMENT,
-  word                varchar(50)   NOT NULL,
-  shown_ct            int           NOT NULL DEFAULT 0,
-  last_shown          datetime      DEFAULT current_timestamp(),
-  moderation_flag_ct  int           NOT NULL DEFAULT 0,
-  moderation_status   varchar(10)   DEFAULT NULL,
-  is_deleted          boolean       NOT NULL DEFAULT 0,
+  subject_id          INT           NOT NULL AUTO_INCREMENT,
+  word                VARCHAR(50)   NOT NULL,
+  shown_ct            INT           NOT NULL DEFAULT 0,
+  last_shown          DATETIME      DEFAULT current_timestamp(),
+  moderation_flag_ct  INT           NOT NULL DEFAULT 0,
+  moderation_status   VARCHAR(10)   DEFAULT NULL,
+  is_deleted          BOOLEAN       NOT NULL DEFAULT 0,
   PRIMARY KEY            (subject_id),
   UNIQUE KEY word        (word),
   KEY last_shown         (last_shown)
 );
 
 CREATE TABLE pitchgame.verbs (
-  verb_id             int           NOT NULL AUTO_INCREMENT,
-  word                varchar(50)   NOT NULL,
-  shown_ct            int           NOT NULL DEFAULT 0,
-  last_shown          datetime      DEFAULT current_timestamp(),
-  moderation_flag_ct  int           NOT NULL DEFAULT 0,
-  moderation_status   varchar(10)   DEFAULT NULL,
-  is_deleted          boolean       NOT NULL DEFAULT 0,
+  verb_id             INT           NOT NULL AUTO_INCREMENT,
+  word                VARCHAR(50)   NOT NULL,
+  shown_ct            INT           NOT NULL DEFAULT 0,
+  last_shown          DATETIME      DEFAULT current_timestamp(),
+  moderation_flag_ct  INT           NOT NULL DEFAULT 0,
+  moderation_status   VARCHAR(10)   DEFAULT NULL,
+  is_deleted          BOOLEAN       NOT NULL DEFAULT 0,
   PRIMARY KEY            (verb_id),
   UNIQUE KEY word        (word),
   KEY last_shown         (last_shown)
 );
 
 CREATE TABLE pitchgame.objects (
-  object_id           int           NOT NULL AUTO_INCREMENT,
-  word                varchar(50)   NOT NULL,
-  shown_ct            int           NOT NULL DEFAULT 0,
-  last_shown          datetime      DEFAULT current_timestamp(),
-  moderation_flag_ct  int           NOT NULL DEFAULT 0,
-  moderation_status   varchar(10)   DEFAULT NULL,
-  is_deleted          boolean       NOT NULL DEFAULT 0,
+  object_id           INT           NOT NULL AUTO_INCREMENT,
+  word                VARCHAR(50)   NOT NULL,
+  shown_ct            INT           NOT NULL DEFAULT 0,
+  last_shown          DATETIME      DEFAULT current_timestamp(),
+  moderation_flag_ct  INT           NOT NULL DEFAULT 0,
+  moderation_status   VARCHAR(10)   DEFAULT NULL,
+  is_deleted          BOOLEAN       NOT NULL DEFAULT 0,
   PRIMARY KEY            (object_id),
   UNIQUE KEY word        (word),
   KEY last_shown         (last_shown)
 );
 
 CREATE TABLE pitchgame.pitches (
-  pitch_id            int           NOT NULL AUTO_INCREMENT,
-  title               varchar(100)  NOT NULL,
-  pitch               text          NOT NULL,
-  signature           varchar(100)  NOT NULL,
-  session_id          int           NOT NULL,
-  subject_id          int           NOT NULL,
-  verb_id             int           NOT NULL,
-  object_id           int           NOT NULL,
-  when_submitted      datetime      NOT NULL DEFAULT current_timestamp(),
-  shown_ct            int           NOT NULL DEFAULT 0,
-  last_shown          datetime      DEFAULT current_timestamp(),
-  moderation_flag_ct  int           NOT NULL DEFAULT 0,
-  moderation_status   varchar(10)   DEFAULT NULL,
-  is_deleted          boolean       NOT NULL DEFAULT 0,
+  pitch_id            INT           NOT NULL AUTO_INCREMENT,
+  title               VARCHAR(100)  NOT NULL,
+  pitch               TEXT          NOT NULL,
+  signature           VARCHAR(100)  NOT NULL,
+  session_id          INT           NOT NULL,
+  subject_id          INT           NOT NULL,
+  verb_id             INT           NOT NULL,
+  object_id           INT           NOT NULL,
+  when_submitted      DATETIME      NOT NULL DEFAULT current_timestamp(),
+  shown_ct            INT           NOT NULL DEFAULT 0,
+  last_shown          DATETIME      DEFAULT current_timestamp(),
+  moderation_flag_ct  INT           NOT NULL DEFAULT 0,
+  moderation_status   VARCHAR(10)   DEFAULT NULL,
+  is_deleted          BOOLEAN       NOT NULL DEFAULT 0,
   PRIMARY KEY            (pitch_id),
   UNIQUE KEY no_dupes    (session_id, subject_id, verb_id, object_id)
   KEY title              (title),
@@ -73,40 +73,42 @@ CREATE TABLE pitchgame.pitches (
 );
 
 CREATE TABLE pitchgame.teams (
-  team_id             int           NOT NULL AUTO_INCREMENT,
-  when_created        datetime      NOT NULL DEFAULT current_timestamp(),
-  token               varchar(40)   NOT NULL,
-  use_ct              int           NOT NULL DEFAULT 0,
+  team_id             INT           NOT NULL AUTO_INCREMENT,
+  when_created        DATETIME      NOT NULL DEFAULT current_timestamp(),
+  token               VARCHAR(40)   NOT NULL,
+  use_ct              INT           NOT NULL DEFAULT 0,
   PRIMARY KEY            (team_id)
 );
 
 CREATE TABLE pitchgame.sessions (
-  session_id          int           NOT NULL AUTO_INCREMENT,
-  when_created        datetime      NOT NULL DEFAULT current_timestamp(),
-  when_last_used      datetime      NOT NULL DEFAULT current_timestamp(),   -- not implemented, remove?
-  signature           varchar(100)  DEFAULT NULL COMMENT 'acts as default for pitches.signature',
-  team_id             int           DEFAULT NULL,
-  ip_address          varchar(40)   DEFAULT NULL COMMENT 'for spam moderation only',
-  useragent           varchar(1000) DEFAULT NULL COMMENT 'for spam moderation only',
-  cookie_token        varchar(40)   DEFAULT NULL,
-  sso_provider        varchar(100)  DEFAULT NULL,        -- not implemented, long term
-  sso_name            varchar(100)  DEFAULT NULL,        -- not implemented, long term
-  is_test             boolean       NOT NULL DEFAULT 0,  -- not implemented, remove?
-  moderation_status   varchar(10)   DEFAULT NULL,
-  is_blocked          boolean       NOT NULL DEFAULT 0,
+  session_id          INT           NOT NULL AUTO_INCREMENT,
+  when_created        DATETIME      NOT NULL DEFAULT current_timestamp(),
+  when_last_used      DATETIME      NOT NULL DEFAULT current_timestamp(),   -- not implemented, remove?
+  signature           VARCHAR(100)  DEFAULT NULL COMMENT 'acts as default for pitches.signature',
+  team_id             INT           DEFAULT NULL,
+  ip_address          VARCHAR(40)   DEFAULT NULL COMMENT 'for spam moderation only',
+  useragent           VARCHAR(1000) DEFAULT NULL COMMENT 'for spam moderation only',
+  cookie_token        VARCHAR(40)   DEFAULT NULL,
+  sso_provider        VARCHAR(100)  DEFAULT NULL,        -- not implemented, long term
+  sso_name            VARCHAR(100)  DEFAULT NULL,        -- not implemented, long term
+  is_test             BOOLEAN       NOT NULL DEFAULT 0,  -- not implemented, remove?
+  blocked_by          INT           DEFAULT NULL,
+  has_debug_access    BOOLEAN       NOT NULL DEFAULT 0,
+  moderation_status   VARCHAR(10)   DEFAULT NULL,
   PRIMARY KEY            (session_id),
   KEY when_last_used     (when_last_used),
   KEY cookie_token       (cookie_token),
   KEY session_team       (team_id),
-  CONSTRAINT session_team FOREIGN KEY (team_id) REFERENCES teams (team_id)
+  CONSTRAINT session_team  FOREIGN KEY (team_id)    REFERENCES teams (team_id),
+  CONSTRAINT session_block FOREIGN KEY (blocked_by) REFERENCES sessions (session_id)
 );
 
 CREATE TABLE pitchgame.ratings (
-  rating_id           int           NOT NULL AUTO_INCREMENT,
-  session_id          int           NOT NULL,
-  pitch_id            int           NOT NULL,
-  rating              tinyint(2)    NOT NULL COMMENT '1 to 4, and -1 means mark as spam',
-  when_rated          datetime      NOT NULL DEFAULT current_timestamp(),
+  rating_id           INT           NOT NULL AUTO_INCREMENT,
+  session_id          INT           NOT NULL,
+  pitch_id            INT           NOT NULL,
+  rating              TINYINT(2)    NOT NULL COMMENT '1 to 4, and -1 means mark as spam',
+  when_rated          DATETIME      NOT NULL DEFAULT current_timestamp(),
   PRIMARY KEY            (rating_id),
   UNIQUE KEY no_dupes    (pitch_id, session_id),
   KEY rating_session     (session_id),
@@ -116,12 +118,12 @@ CREATE TABLE pitchgame.ratings (
 );
 
 CREATE TABLE pitchgame.suggestions (
-  suggestion_id       int           NOT NULL AUTO_INCREMENT,
-  session_id          int           NOT NULL,
-  subject_id          int           NOT NULL,
-  verb_id             int           NOT NULL,
-  object_id           int           NOT NULL,
-  when_suggested      datetime      NOT NULL DEFAULT current_timestamp(),
+  suggestion_id       INT           NOT NULL AUTO_INCREMENT,
+  session_id          INT           NOT NULL,
+  subject_id          INT           NOT NULL,
+  verb_id             INT           NOT NULL,
+  object_id           INT           NOT NULL,
+  when_suggested      DATETIME      NOT NULL DEFAULT current_timestamp(),
   PRIMARY KEY            (suggestion_id),
   UNIQUE KEY no_dupes    (session_id, subject_id, verb_id, object_id)
   KEY suggestion_session (session_id),
@@ -135,15 +137,15 @@ CREATE TABLE pitchgame.suggestions (
 );
 
 CREATE TABLE moderations (
-  moderation_id       int           NOT NULL AUTO_INCREMENT,
-  session_id          int           NOT NULL COMMENT 'track people''s moderation requests to detect abuse',
-  subject_id          int           DEFAULT NULL,
-  verb_id             int           DEFAULT NULL,
-  object_id           int           DEFAULT NULL,
-  pitch_id            int           DEFAULT NULL,
-  when_submitted      datetime      NOT NULL DEFAULT current_timestamp(),
-  accepted_by         int           DEFAULT NULL COMMENT 'a request may be both accepted and rejected if it flags more than one word',
-  rejected_by         int           DEFAULT NULL,
+  moderation_id       INT           NOT NULL AUTO_INCREMENT,
+  session_id          INT           NOT NULL COMMENT 'track people''s moderation requests to detect abuse',
+  subject_id          INT           DEFAULT NULL,
+  verb_id             INT           DEFAULT NULL,
+  object_id           INT           DEFAULT NULL,
+  pitch_id            INT           DEFAULT NULL,
+  when_submitted      DATETIME      NOT NULL DEFAULT current_timestamp(),
+  accepted_by         INT           DEFAULT NULL COMMENT 'a request may be both accepted and rejected if it flags more than one word',
+  rejected_by         INT           DEFAULT NULL,
   PRIMARY KEY                   (moderation_id),
   UNIQUE KEY no_dupes           (session_id, subject_id, verb_id, object_id, pitch_id)
   KEY moderation_session        (session_id),
