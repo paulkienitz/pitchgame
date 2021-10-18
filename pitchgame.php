@@ -3,21 +3,19 @@
 // This page contains all views for the gameplay loop seen by regular players.
 
 // TODO: make everything use more color, maybe some fancy fonts
-//       flag in sessions to grant access to logs and to retry randomized queries
-//       update session IP and when_last_used each time, or if stale
-//       admin pages for checking bad words and spam:
-//           review session history, maybe unifying across common IP address
-//           ban sessions with optional bulk delete of their submissions
+//       use flag in sessions to grant access to logs and to retry randomized queries
+//       admin page: list of all users who lack spotless records, with history links
+//       admin page: cache $userSummary via serialization?
+//       support sso identity, or simple password if that's too hard
 //
-// BUGS: "with pits" query for reviews or faves can be slow
-//       averages on faves have excess spacing in phone view
-//       target _blank no work in Chrome mobile?
+// BUGS: "with pits" query for reviews or faves are intermittently slow... argh it's not the query itself
+//       dupes counts for words in moderations query is too high?  cross join?
 //
 // TEST: 
 //
 // IDEA: banner text curved cinemascope style via svg?
 //       ...maybe a link to see other pitches by the same author?  only if signature used?
-//       blocked session check should look for same IP address in recent days? nah, ip6 ones change daily?
+//       blocked session check could look for same IP address in recent days?  nah, ip6 ones change daily?
 //       maybe instead just a page to search for IP matches?
 //       view history of accept, reject, ban, and bulk delete by other admins?
 //       make everyone give a name even if no password?
@@ -71,7 +69,7 @@ function englishNumber(int $n)
 
 if (!$databaseFailed)
 {
-	if (!isset($_COOKIE['pitchgame']) || !$con->getSessionByToken($_COOKIE['pitchgame']))
+	if (!isset($_COOKIE['pitchgame']) || !$con->getSessionByToken($_COOKIE['pitchgame'], myiP()))
 	{
 		$token = $con->makeSession(myIP(), $_SERVER['HTTP_USER_AGENT']);
 		if ($token)
@@ -116,8 +114,15 @@ if (isset($_POST['formtype']) && !$databaseFailed)		// extract form values, vali
 		$setDefaultSig = !!$_POST['defsig'];
 		$ideaWordCount    = substr_count($idea, ' ') + 1;
 		$challengeSummary = despace("$challenge->subject $challenge->verb $challenge->object");
-		$validationFailed = !$title || !$pitch;
-		if (!$validationFailed)
+		$validationFailed = (!$title || !$pitch) && $seed;
+		if (!$seed)
+		{
+			$seed = rand(1000000, 2000000000);
+			$challenge = $con->getChallenge($seed);
+			$challengeSummary = despace("$challenge->subject $challenge->verb $challenge->object");
+			$pagestate = 1;
+		}
+		else if (!$validationFailed)
 		{
 			$databaseFailed = !$con->addPitch($challenge, $title, $pitch, $signature, $setDefaultSig);
 			if (!$databaseFailed)
@@ -150,19 +155,29 @@ if (isset($_POST['formtype']) && !$databaseFailed)		// extract form values, vali
 	}
 	else if ($_POST['formtype'] == 'review')			// pagestate 2 form submitted
 	{
-		$pitchesToReview = unserialize($_POST['pitchesToReview']);
-		$anyRated = false;
-		foreach ($pitchesToReview as $pitcher)
+		$seed = (int) $_POST['seed'];
+		if (!$seed)
 		{
-			$rating = trim($_POST['newrating_' . $pitcher->pitchId]);
-			if ($rating)
-				if ($con->ratePitch($pitcher->pitchId, $rating))
-					$anyRated = true;
-				else
-					$databaseFailed = true;
+			$seed = rand(1000000, 2000000000);
+			$pitchesToReview = $con->getPitchesToReview($seed);
+			$pagestate = 2;
 		}
-		if (!$databaseFailed)
-			$pagestate = $anyRated ? 5 : 4;
+		else
+		{
+			$pitchesToReview = unserialize($_POST['pitchesToReview']);
+			$anyRated = false;
+			foreach ($pitchesToReview as $pitcher)
+			{
+				$rating = trim($_POST['newrating_' . $pitcher->pitchId]);
+				if ($rating)
+					if ($con->ratePitch($pitcher->pitchId, $rating))
+						$anyRated = true;
+					else
+						$databaseFailed = true;
+			}
+			if (!$databaseFailed)
+				$pagestate = $anyRated ? 5 : 4;
+		}
 	}
 	else if ($_POST['formtype'] == 'favorites')			// pagestate 3 form submitted
 	{
@@ -268,7 +283,7 @@ if (isset($_POST['formtype']) && !$databaseFailed)		// extract form values, vali
 	</p>
 	<form method="POST" class=fields>
 		<input type=hidden name=formtype value="initialwords" />
-		<input type=hidden name=seed value="<?=rand()?>" />
+		<input type=hidden name=seed value="<?=rand(1000000, 2000000000)?>" />
 		<div class=narrowgowides>
 			<label for=subject>Noun:</label>
 			<input type=text id=subject name=subject value='<?=enc($initialSubject)?>' maxlength=50 tabindex=1 />
@@ -346,6 +361,7 @@ if (isset($_POST['formtype']) && !$databaseFailed)		// extract form values, vali
 	<form method="POST">
 		<input type=hidden name=formtype value='review' />
 		<input type=hidden name=pitchesToReview value='<?=enc(serialize($pitchesToReview))?>' />
+		<input type=hidden name=seed value="<?=$seed?>" />
 		<button>Submit My Ratings and Play Another Round</button>
 
 	<?php foreach ($pitchesToReview as $pitcher) { ?>
@@ -354,7 +370,7 @@ if (isset($_POST['formtype']) && !$databaseFailed)		// extract form values, vali
 				<i>from the idea “<?=enc($pitcher->subject)?>
 			    <?=enc($pitcher->verb)?> <?=enc($pitcher->object)?>”:</i>
 			</div>
-			<h3><?=enc($pitcher->title)?></h3>
+			<h3 class=favetitle><?=enc($pitcher->title)?></h3>
 			<p style='white-space: pre-wrap'><?=enc($pitcher->pitch)?></p>
 			<?php if ($pitcher->signature) echo "<div>&mdash; $pitcher->signature</div>\n"; ?>
 			<div class=stars>
@@ -392,14 +408,16 @@ if (isset($_POST['formtype']) && !$databaseFailed)		// extract form values, vali
 				<i>from the idea “<?=enc($pitcher->subject)?>
 			    <?=enc($pitcher->verb)?> <?=enc($pitcher->object)?>”:</i>
 			</div>
-			<h3>
-				<?=enc($pitcher->title)?>
-				<span class='star aftergap' title='<?=$pitcher->yourRating?> stars'><?=str_repeat('&#9733;', $pitcher->yourRating)?></span>
+			<div class=uppergap>
+				<h3 class=favetitle>
+					<?=enc($pitcher->title)?>
+					<span class='star aftergap' title='<?=$pitcher->yourRating?> stars'><?=str_repeat('&#9733;', $pitcher->yourRating)?></span>
+				</h3>
 		<?php if ($pitcher->ratingCount > 1) { ?>
 				<span class=otherstar>(average <?=number_format($pitcher->averageRating, 1)?> stars over <?=$pitcher->ratingCount?> reviews)</span>
 		<?php } ?>
-			</h3>
-			<p style='white-space: pre-wrap'><?=enc($pitcher->pitch)?></p>
+			</div>
+			<p class=favepitch><?=enc($pitcher->pitch)?></p>
 			<?php if ($pitcher->signature) echo "<div>&mdash; $pitcher->signature</div>\n"; ?>
 		</blockquote>
 	<?php } ?>
@@ -455,19 +473,26 @@ if (isset($_POST['formtype']) && !$databaseFailed)		// extract form values, vali
 		</p><p>
 			<label><input type=checkbox name=badobject id=badObject/> “<?=enc($challenge->object)?>” is not a noun</label>
 		</p><p>
-			<button>Return to my Pitch</button>
+			<button>Submit and Return to my Pitch</button>
 		</p>
 	</form>
 
 <?php } ?>
 </main>
 
+<?php if ($con->hasDebugAccess && ($pagestate == 1 || $pagestate == 2)) { ?>
 <p style='margin-top: 2em'>
+	<a href='' id=randomize class=meta>randomize</a>
+</p>
+<?php }
+      if ($con->hasDebugAccess) { ?>
+<p>
 	<a href='' id=showLog class=meta>show DB log</a>
 </p>
 <p id=theLog class=exceptional style='display: none'>
 	<?=nl2br(enc($con->getLog() ?: 'no log entries recorded'))?>
 </p>
+<?php } ?>
 
 </body>
 </html>
