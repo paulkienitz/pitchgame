@@ -187,9 +187,22 @@ form p:last-child {
 	border: solid 1px silver;
 	background: white;
 	padding: 0.6em 1em;
+	margin: 1.5em 2em;
+}
+.pitch.dark {
+	background: #dddddd;
 }
 .star {
 	color: #DDAA00;
+}
+.uppergap {
+	margin-top: 1em;
+}
+.lowergap {
+	margin-bottom: 1em;
+}
+.uppergap .favetitle {
+	line-height: 1.1em;
 }
 .aftergap {
 	margin-right: 2em;
@@ -214,12 +227,22 @@ form p:last-child {
 	font-weight: bold;
 	color: #000000;
 }
+
+.favetitle {
+	display: inline-block;
+	margin: 0;
+	line-height: 1.25em;
+}
 .otherstar {
 	font-family: sans-serif;
 	font-weight: normal;
-	font-size: 60%;
+	font-size: 66.6%;
 	white-space: nowrap;
 	color: #666666;
+}
+.favepitch {
+	clear: both;
+	white-space: pre-wrap;
 }
 
 .meta {
@@ -248,7 +271,7 @@ form p:last-child {
 	font-family: sans-serif;
 	font-size: 90%;
 }
-.userSummary .warn {
+.warn {
 	color: #990000;
 }
 .userSummary td {
@@ -257,4 +280,7 @@ form p:last-child {
 .browse {
 	text-decoration: underline;
 	text-decoration-color: #777799;
+}
+.deleted {
+	text-decoration: line-through;
 }
