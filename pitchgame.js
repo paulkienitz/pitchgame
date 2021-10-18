@@ -32,6 +32,19 @@ function showLog(ev)
 	return false;
 }
 
+function randomize(ev)   // argh thus is useless...
+{
+	var form = document.forms[0];
+	var seedy = form ? form['seed'] : undefined;
+	if (seedy)
+		seedy.value = '';
+	if (form)
+		form.submit();
+	ev.preventDefault();
+	ev.stopPropagation();
+	return false;
+}
+
 function showSessionSummary(ev)
 {
 	var sessionId = this.id.substring(8);
@@ -39,6 +52,9 @@ function showSessionSummary(ev)
 	var plopup = document.getElementById('sessionStats');
 	SPARE.replaceContent("userSummarySpot", url, "userSummary", null, plopup, function (plopup) {
 		plopup.style.display = 'block';
+		var lsi = document.getElementById('lastSessionId');
+		lsi.value = sessionId + '';
+		attach('#historicize', beHistorical);
 	});
 	ev.preventDefault();
 	ev.stopPropagation();
@@ -57,6 +73,20 @@ function beModerate(ev)
 	if (form && formtype)
 	{
 		formtype.value = 'moderate';
+		form.submit();
+	}
+	ev.preventDefault();
+	ev.stopPropagation();
+	return false;
+}
+
+function beHistorical(ev)
+{
+	var formtype = document.getElementById('formtype');
+	var form = document.forms[0];
+	if (form && formtype)
+	{
+		formtype.value = 'history';
 		form.submit();
 	}
 	ev.preventDefault();
@@ -98,33 +128,25 @@ function rateAsSpamOrClear(ev)
 	showStars(pitchId, parts[1] == "spam" ? -1 : 0);
 }
 
+function attach(selector, handler, event)
+{
+	var finding = document.querySelectorAll(selector);
+	for (var i = 0; i < finding.length; i++)
+		finding[i].addEventListener(event || 'click', handler);
+}
+
 function init()
 {
 	polyfill_closest();
-	var showhints = document.getElementById('showhints');
-	if (showhints)
-		showhints.addEventListener('click', showHints);
-	var showlog = document.getElementById('showLog');
-	if (showlog)
-		showlog.addEventListener('click', showLog);
-	var closers = document.getElementsByClassName('closer');
-	for (var i = 0; i < closers.length; i++)
-		closers[i].addEventListener('click', closer);
-	var backers = document.getElementsByClassName('backer');
-	for (var i = 0; i < backers.length; i++)
-		backers[i].addEventListener('click', closer);
-	var moderato = document.getElementById('moderato');
-	if (moderato)
-		moderato.addEventListener('click', beModerate);
-	var stars = document.getElementsByClassName('star');
-	for (var i = 0; i < stars.length; i++)
-		stars[i].addEventListener('click', rateWithStars);
-	var stars = document.getElementsByClassName('spam');
-	for (var i = 0; i < stars.length; i++)
-		stars[i].addEventListener('click', rateAsSpamOrClear);
-	var sessions = document.getElementsByClassName('slinky');
-	for (var i = 0; i < sessions.length; i++)
-		sessions[i].addEventListener('click', showSessionSummary);
+	attach('#showLog', showLog);
+	attach('#randomize', randomize);
+	attach('#showhints', showHints);
+	attach('.closer, .backer', closer);
+	attach('#moderato', beModerate);
+	attach('.star', rateWithStars);
+	attach('.spam', rateAsSpamOrClear);
+	attach('.slinky', showSessionSummary);
+    attach('#historicize', beHistorical);       // normally used only in a SPARE popup
 }
 
 window.addEventListener("DOMContentLoaded", init);
