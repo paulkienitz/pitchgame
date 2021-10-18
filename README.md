@@ -17,24 +17,37 @@ Third checkin is prerelease 0.3, which adds a moderators’ page for spam abatem
 
 Fourth checkin, prerelease 0.4, added no significant features but checked a lot of small updates off of the todo list.
 
-Yet to be added are more cosmetics, further admin page options to support blocking and cleaning up after malicious users, and the team play feature.
+Fifth checkin, prerelease 0.5, adds moderator review of a user's full history, with options to block the user or purge their entire contribution.
 
-The normal path through the game is as follows:
-0. The initial state of the screen displays a welcome message and prompts you for a noun, a verb, and a noun.
-1. After saving your noun, verb, and noun, the form presents a different noun, verb, and noun, and prompts you to give a movie title and description — a pitch — based on that brief idea.  You can also include an optional signature.
-2. After saving your pitch, it lists several previous pitches from other players, and lets you rate each one from one to four stars (or mark them as spam).
-4. After submitting your ratings, or setting no ratings and just clicking a continuation button, it shows a thank you message and prompts you for a noun, verb, and noun again, as in step 0, thereby closing the loop.
+Yet to be added are more cosmetics, some helpful admin features, proper login (maybe including SSO), and the team play feature.
+
+----
+
+The normal path through the game is as follows.  The number in brackets is the one used internally to designate the view state.
+
+[0] The initial state of the screen displays a welcome message and prompts you for a noun, a verb, and a noun.
+
+[1] After saving your noun, verb, and noun, the form presents a different noun, verb, and noun, and prompts you to give a movie title and description — a pitch — based on that brief idea.  You can also include an optional signature.
+
+[2] After saving your pitch, it lists several previous pitches from other players, and lets you rate each one from one to four stars (or mark them as spam).
+
+[4/5] After submitting your ratings, or setting no ratings and just clicking a continuation button, it shows a thank you message and prompts you for a noun, verb, and noun again, as in step 0, thereby closing the loop.
 
 Abnormal paths can add these steps:
-3. If it runs out of movie pitches that you have neither written nor rated, then instead of showing you pitches to rate, it instead shows you pitches you've already rated with at least three stars... “old favorites”.  (The game currently fails if none are found.)
-6. Step 1 offers you a link to complain about the words you received.  This link takes you to a page where you can mark any or all of the three words as not a valid noun or not a valid verb.  After you do so it takes you back to step 1, with any word you flagged replaced with a new one.
+
+[3] If it runs out of movie pitches that you have neither written nor rated, then instead of showing you pitches to rate, it instead shows you pitches you've already rated with at least three stars... “old favorites”.  (The game currently fails if none are found.)
+
+[6] Step 1 offers you a link to complain about the words you received.  This link takes you to a page where you can mark any or all of the three words as not a valid noun or not a valid verb.  After you do so it takes you back to step 1, with any word you flagged replaced with a new one.
 
 Validation errors reprompt you with the same screen, with messages about required fields or whatever else the issue might be.
 Database errors exit to a screen which, for now, displays an exception message openly, followed by a log of database activity in the current postback.
 The former is also written to the server error log.
 
-The moderation page currently stays on a single view: a list of the ten newest pending moderation requests, each being answerable with a set of radio buttons.  If none are left it just has a thank-you message.
+The moderation page starts a list of the ten newest pending moderation requests, each being answerable with a set of radio buttons.
+If none are left it just has a thank-you message.
 The same page can also serve content to SPARE to insert into a popup for viewing stats about a user, so you can see if they have a record of prior bad behavior.
+From that page you can follow a link to a full history of all contributions made by that user, flagging additional trouble spots.
+If that history shows a pattern of abuse you can block them, and if it also shows little positive contribution, you can bulk delete the whole list.
 
 ### How to set up
 
