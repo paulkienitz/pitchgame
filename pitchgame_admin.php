@@ -2,18 +2,24 @@
 <?php
 // This page is for moderators and administrators.  Set it to be accessible only with a password.
 
-// TODO: start with master list of moderation stats and links: requests, iffy users, ?
-//       implement user history review with block and delete options
+// ...maybe start with master list of moderation stats and links: requests, iffy users, history of other moderators if you have debug rights?
 
 require 'pitchdata.php';
 
-$pagestate = 0;			// 0 = FOR NOW, list of outstanding moderation requests, 1 = user summary
+$pagestate = 0;			// 0 = outstanding moderation requests, 1 = user summary, 2 = user history, 3 = just blocked, 4 = confirm purge
 $con = new PitchGameConnection();		// defined in pitchdata.php
 
 $validationFailed = false;
 $databaseFailed = !$con->isReady();
 
 $resolved = 0;
+$pitchesFlagged = 0;
+$wordsFlagged = 0;
+$undine = false;
+$purgery = false;
+$moderationRequests = null;
+$userSummary = null;
+$history = null;
 
 function myIP()
 {
@@ -70,7 +76,7 @@ function countAndRange(int $count, ?string $earliest, ?string $latest)
 
 function showFlagDelMod(int $shown, int $flagged, int $deleted, int $moderated)
 {
-	return $shown . ' shown, ' . warn($flagged, 'flagged') . ', ' . warn($deleted, 'deleted') . ', ' . warn($moderated, 'moderated');
+	return $shown . ' views, ' . warn($flagged, 'flags') . ', ' . warn($deleted, 'deleted') . ', ' . warn($moderated, 'moderated');
 }
 
 function slink(int $sessionId)
@@ -84,16 +90,33 @@ function attribution(int $id, string $when, int $sessionId, int $flagCount)
 	       ($flagCount > 1 ? ", has $flagCount flags" : '');
 }
 
+function histatus(int $shownCount, int $flagCount, ?string $modStatus, bool $deleted)
+{
+	if ($deleted || $modStatus)
+		return "$shownCount views, " . warn($flagCount, 'flags') .
+		       ' — <span class=warn>' . ($deleted ? 'DELETED as ' . $modStatus
+		                                          : 'judged ' . $modStatus) . "</span>\n";
+	else
+		return "$shownCount views, " . warn($flagCount, 'flags') . "\n";
+}
+
+function histword(string $part, string $word, int $shownCount, int $flagCount, ?string $modStatus, bool $deleted)
+{
+	return "<br/>$part <span class='lit" . ($deleted ? ' deleted' : '') . "'>“" . enc($word) . '”</span> — ' .
+	       histatus($shownCount, $flagCount, $modStatus, $deleted);
+}
+
 function askWord(string $kind, int $id, string $when, int $sessionId, int $flagCount, int $dupes, string $word, int $moderationId)
 {
 	$rat = "type=radio name='modreq_$kind[0]_$moderationId'";
 	$partOfSpeech = $kind == 'Verb' ? 'verb' : 'noun';
-	return "<div>— $kind " . attribution($id, $when, $sessionId, $flagCount) .
+	return "<div class=uppergap>— $kind " . attribution($id, $when, $sessionId, $flagCount) .
 	       ($dupes > 1 ? ", $dupes dupes" : '') .
 	       "</div>\n<div class=qq>Is <span class=lit>“" . enc($word) .
 	       "”</span> a valid $partOfSpeech?</div>\n<div>" .
 	       "<label><input $rat value='Valid' /> Valid</label>" .
-	       "<label><input $rat value='Spelling' /> Misspelled</label>" .
+	       "<label><input $rat value='Dubious' /> Dubious</label>" .
+	       "<label><input $rat value='Misspelled' /> Misspelled</label>" .
 	       "<label><input $rat value='Non-$partOfSpeech' /> Not a $partOfSpeech, DELETE</label>" .
 	       "<label><input $rat value='Gibberish' /> Gibberish, DELETE</label>" .
 	       "<label><input $rat value='Spam' /> Spam, DELETE</label>" .
@@ -106,11 +129,11 @@ function askWord(string $kind, int $id, string $when, int $sessionId, int $flagC
 
 if (!$databaseFailed)
 {
-	if (!isset($_COOKIE['pitchgame']) || !$con->getSessionByToken($_COOKIE['pitchgame']))
+	if (!isset($_COOKIE['pitchgame']) || !$con->getSessionByToken($_COOKIE['pitchgame'], myIP()))
 	{
 		$token = $con->makeSession(myIP(), $_SERVER['HTTP_USER_AGENT']);
 		if ($token)
-			setcookie('pitchgame', $token);
+			setcookie('pitchgame', $token, time() + 366*86400);
 		else
 			$databaseFailed = true;
 	}
@@ -122,37 +145,108 @@ else
 if (isset($_GET['sessionId']) && !$databaseFailed)
 {
 	$sessionId = (int) $_GET['sessionId'];
-	$userSummary = $con->sessionStats($sessionId);
 	$pagestate = 1;
 }
 else if (isset($_POST['formtype']) && !$databaseFailed)		// extract form values, validate, and update
 {
 	if ($_POST['formtype'] == 'judgerequests')
-	$moderationRequests = unserialize($_POST['moderationrequests']);
-	foreach ($moderationRequests as $rq)
 	{
-		$judgmentP = $_POST["modreq_P_$rq->moderationId"];
-		$judgmentS = $_POST["modreq_S_$rq->moderationId"];
-		$judgmentV = $_POST["modreq_V_$rq->moderationId"];
-		$judgmentO = $_POST["modreq_O_$rq->moderationId"];
-		if (!$con->saveJudgment($rq, $judgmentP, $judgmentS, $judgmentV, $judgmentO))
-			$databaseFailed = true;
-		else if ($judgmentP || $judgmentS || $judgmentV || $judgmentO)
-			$resolved++;
-	}
-	if (!$databaseFailed)
-	{
-		// refresh the list
-		$moderationRequests = $con->getRecentModerationRequests();
-		$databaseFailed = !is_array($moderationRequests);
+		$moderationRequests = unserialize($_POST['moderationrequests']);
+		foreach ($moderationRequests as $rq)
+		{
+			$judgmentP = $_POST["modreq_P_$rq->moderationId"];
+			$judgmentS = $_POST["modreq_S_$rq->moderationId"];
+			$judgmentV = $_POST["modreq_V_$rq->moderationId"];
+			$judgmentO = $_POST["modreq_O_$rq->moderationId"];
+			if (!$con->saveJudgment($rq, $judgmentP, $judgmentS, $judgmentV, $judgmentO))
+				$databaseFailed = true;
+			else if ($judgmentP || $judgmentS || $judgmentV || $judgmentO)
+				$resolved++;
+		}
 		$pagestate = 0;
 	}
+	else if ($_POST['formtype'] == 'history')
+	{
+		$sessionId = (int) $_POST['sessionid'];
+		$pagestate = 2;
+	}
+	else if ($_POST['formtype'] == 'judgeuser')
+	{
+		$sessionId = (int) $_POST['sessionid'];
+		$disposal = $_POST['disposal'];
+		if ($disposal == 'purge')
+			$pagestate = 4;
+		else
+		{
+			$history = unserialize($_POST['history']);
+			foreach ($history as $h)
+			{
+				$pitcher = !!$_POST["attn_p$h->pitchId"];
+				$suggester = !!$_POST["attn_g$h->suggestionId"];
+				if ($pitcher && $h->liveP())
+				{
+					if ($con->ratePitch($h->pitchId, -1))
+						++$pitchesFlagged;
+					else
+						$databaseFailed = true;
+				}
+				else if ($suggester)
+				{
+					if ($con->flagWordsForModeration($h, $h->liveS(), $h->liveV(), $h->liveO()))
+						$wordsFlagged += (int) $h->liveS() + (int) $h->liveV() + (int) $h->liveO();
+					else
+						$databaseFailed = true;
+				}
+			}
+			if ($disposal == 'block' && !$databaseFailed)
+			{
+				$databaseFailed = !$con->blockSession($sessionId, true);
+				$pagestate = 3;
+			}
+			else
+				$pagestate = 0;
+		}
+	}
+	else if ($_POST['formtype'] == 'blocked')
+	{
+		$sessionId = (int) $_POST['sessionid'];
+		$action = $_POST['block'];
+		if ($action == 'undo')
+			$databaseFailed = !($undine = $con->blockSession($sessionId, false));
+		$pagestate = 0;
+	}
+	else if ($_POST['formtype'] == 'purging')
+	{
+		$sessionId = (int) $_POST['sessionid'];
+		$confirm = $_POST['confirm'];
+		if ($confirm == 'yes')
+		{
+			$purgery = $con->purgeSession($sessionId);
+			$databaseFailed = !$purgery;
+			$pagestate = 0;
+		}
+		else
+			$pagestate = 2;
+	}
 }
-else
+// make sure each page view has its necessary data
+if (!$databaseFailed)
 {
-	$moderationRequests = $con->getRecentModerationRequests();
-	$databaseFailed = !is_array($moderationRequests);
-	$pagestate = 0;
+	if (($pagestate == 1 || $pagestate == 2 || $pagestate == 4) && !$userSummary)
+	{
+		$userSummary = $con->sessionStats($sessionId);
+		$databaseFailed = !$userSummary;
+	}
+	if ($pagestate == 0 && !$moderationRequests)
+	{
+		$moderationRequests = $con->getRecentModerationRequests();
+		$databaseFailed = !is_array($moderationRequests);
+	}
+	else if ($pagestate == 2 && !$history && !$databaseFailed)
+	{
+		$history = $con->getSessionHistory($sessionId);
+		$databaseFailed = !is_array($history);
+	}
 }
 ?>
 <html>
@@ -183,6 +277,7 @@ else
 
 <main>
 <h1>Movie Pitch Game Administration</h1>
+<p><a href='/pitchgame/'>Return to the game</a><p>
 	
 <?php if ($databaseFailed) { ?>
 
@@ -203,27 +298,39 @@ else
 	Thank you for handling <?=$resolved == 1 ? 'that moderation request' :
 	   'those ' . englishNumber($resolved) . ' moderation requests' ?>.&ensp;Here are some more.
 
+	<?php } else if ($undine) { ?>
+
+	<p>The block has been undone.</p>
+
+	<p>Here are the newest moderation requests.</p>
+
+	<?php } else if ($pitchesFlagged || $wordsFlagged) { ?>
+
+	<p>Thank you.&ensp;<?=$wordsFlagged?> words and <?=$pitchesFlagged?> pitches have been added to
+	the moderation list.&ensp;Here are the newest items.</p>
+
 	<?php } else  { ?>
 
-	Here are the ten most recent moderation requests — ideas marked as non-words, and pitches
-	marked as spam.&ensp;Please check each one for validity.
+	<p>Here are the most recent moderation requests — ideas marked as non-words, and pitches
+	marked as spam.&ensp;Please check each one for validity.</p>
 
 	<?php } ?>
 	</p>
 	<form method="POST" class=meta>
-		<input type=hidden name=formtype value="judgerequests" />
+		<input type=hidden name=formtype id=formtype value='judgerequests' />
+		<input type=hidden name=sessionid id=lastSessionId value='' />
 		<input type=hidden name=moderationrequests value="<?=enc(serialize($moderationRequests))?>" />
 	<?php foreach ($moderationRequests as $modreq) { ?>
 		<div class=fields>
-			<p>#<?=$modreq->moderationId?> → At <?=$modreq->whenRequested?>,
+			<div>#<?=$modreq->moderationId?> »&ensp;At <?=$modreq->whenRequested?>,
 			   <?=slink($modreq->requestorSessionId)?>
-			   <?=$modreq->flagDupes > 2 ? '(and ' . englishNumber($modreq->flagDupes - 1) . ' others)' :
-			      ($modreq->flagDupes > 1 ? '(and one other)' : '')?>
-			   flagged this:</p>
+			   <!--?=$modreq->flagDupes > 2 ? '(and ' . englishNumber($modreq->flagDupes - 1) . ' others)' :
+			      ($modreq->flagDupes > 1 ? '(and one other)' : '')?-->
+			   flagged this:</div>
 		<?php if ($modreq->pitchId) { ?>
-			<div>
+			<p>
 				— Pitch <?=attribution($modreq->pitchId, $modreq->whenPitched, $modreq->pitchSessionId, $modreq->pitchFlagCount)?>:
-			</div>
+			</p>
 			<!-- div>
 				Idea: “<?=enc($modreq->subject)?> <?=enc($modreq->verb)?> <?=enc($modreq->object)?>”
 			</div -->
@@ -273,19 +380,25 @@ else
 	
 	<?php } ?>
 
-<?php } else if ($pagestate == 1 && !$userSummary) { ?>
+<?php } else if (($pagestate == 1 || $pagestate == 2) && !$userSummary) { ?>
 
 	<div id=userSummary>
 		<p>User <?=enc($_GET['sessionId'])?> not found.</p>
 	</div>
 
-<?php } else if ($pagestate == 1) { ?>
+<?php } else if ($pagestate == 1 || $pagestate == 2) { ?>
 
+	<?php if ($pagestate == 1) { ?>
+	<form method="POST" action='pitchgame_admin.php'>
+		<input type=hidden name=formtype id=formtype value='history' />
+		<input type=hidden name=sessionid value='<?=$sessionId?>' />
+	</form>
+	<?php } ?>
 	<div id=userSummary>
 		<table class=userSummary>
 			<tr><td>Session <?=$sessionId?> status:</td>
-			    <td><?=$userSummary->isBlocked ? '<span class=warn>BLOCKED</span>' : ($userSummary->isTest ? 'TEST' : 'active')?>,
-			        <?=$userSummary->signature ? '“<span class=lit>' . enc($userSummary->signature) . '”</span>' : 'no default signature'?></td>
+			    <td><?=$userSummary->blockedBy ? "<span class=warn>BLOCKED by $userSummary->blockedBy</span>" : ($userSummary->isTest ? 'TEST' : 'active')?> —
+			        <?=$userSummary->signature ? 'signature is “<span class=lit>' . enc($userSummary->signature) . '”</span>' : 'no default signature'?></td>
 			</tr>
 			<tr><td>Connection:</td>
 			    <td>browser <?=describeBrowser($userSummary->userAgent)?>, IP address <?=enc($userSummary->ipAddress)?></td>
@@ -315,7 +428,105 @@ else
 			</tr>
 	<?php } ?>
 		</table>
+	<?php if ($pagestate == 1) { ?>
+		<p>
+			<a href='' id=historicize>View full submission history</a>
+		</p>
+	<?php } ?>
 	</div>
+
+	<?php if ($pagestate == 2) { ?>
+	
+	<h2>History of user <?=$sessionId?>’s ideas and pitches:</h2>
+	<p>
+
+	Here is everything they’ve submitted, from most recent to oldest.&ensp;If you
+	see that the user is mainly making an honest effort, you can use the “Flag for
+	further ttention” checkbox to flag the bad cases for moderation.&ensp;On the
+	other hand, if there’s plenty of bad and not much good here, there’s no need
+	to take that much trouble... in that case, there’s an option to completely
+	purge everything the user has submitted.
+
+	</p>
+	<form method="POST" class=meta>
+		<input type=hidden name=formtype id=formtype value='judgeuser' />
+		<input type=hidden name=sessionid value='<?=$sessionId?>' />
+		<input type=hidden name=history value='<?=enc(serialize($history))?>' />
+		<?php foreach ($history as $h) { ?>
+		<blockquote class="pitch <?=$h->deleted() ? ' dark' : ''?>">
+			<?php if ($h->pitchId) { ?>
+				<div class=lowergap>
+					<?=$h->whenPosted?> »&ensp;<?=histatus($h->pitchShownCount, $h->pitchFlagCount, $h->pitchModStatus, $h->pitchDeleted)?>
+				</div>
+				<div <?=$h->pitchDeleted ? 'class=deleted' : ''?>>
+					<div>Title: <span class=lit>“<?=enc($h->title)?>”</span></div>
+					<div>Pitch: <span class=lit>“<?=enc($h->pitch)?>”</div>
+					<div>Signature: <?=$signature ? '<span class=lit>“' . enc($h->signature) . '”</span>' : '(none)'?></div>
+				</div>
+				<?php if ($h->liveP()) { ?>
+					<label class=uppergap><input type=checkbox name='attn_p<?=$h->pitchId?>' value=1 /> Flag for further attention</label>
+				<?php } ?>
+			<?php } else { ?>
+				<div><?=$h->whenPosted?> »</div>
+				<div>
+					<?=histword('Subject', $h->subject, $h->subjectShownCount, $h->subjectFlagCount, $h->subjectModStatus, $h->subjectDeleted)?>
+					<?=histword('Verb',    $h->verb,    $h->verbShownCount,    $h->verbFlagCount,    $h->verbModStatus,    $h->verbDeleted)?>
+					<?=histword('Object',  $h->object,  $h->objectShownCount,  $h->objectFlagCount,  $h->objectModStatus,  $h->objectDeleted)?>
+				</div>
+				<?php if ($h->liveS() || $h->liveV() || $h->liveO()) { ?>
+					<div class=uppergap>
+						<label><input type=checkbox name='attn_g<?=$h->suggestionId?>' value=1 /> Flag for further attention</label>
+					</div>
+				<?php } ?>
+			<?php } ?>
+		</blockquote>
+		<?php } ?>
+
+	<p>
+
+	Besides submitting any flag-for-attention checkboxes you may have set, these
+	buttons allow you to decide the fate of the user who wrote the material
+	above.&ensp;(If you choose “Purge”, the checkboxes won’t matter.)
+
+	</p><p>
+
+	<button name=disposal value=permit>Let them keep playing</button><br/>
+	<button name=disposal value=block>Block this user (but do not purge)</button><br/>
+	<button name=disposal value=purge>Block them and purge everything above</button>
+
+	</p>
+	</form>
+	<?php } ?>
+
+<?php } else if ($pagestate == 3) { ?>
+
+	<p>Thank you.&ensp;<?=$wordsFlagged?> words and <?=$pitchesFlagged?> pitches have been added to
+	the moderation list.&ensp;User <?=$sessionId?> is now blocked.</p>
+
+	<form method=POST>
+		<input type=hidden name=formtype value='blocked' />
+		<input type=hidden name=sessionid value='<?=$sessionId?>' />
+		<button name=block value=undo>Woops, undo the block!</button><br/>
+		<button name=block value=okay>OK, return to moderation list</button>
+	</form>
+
+<?php } else if ($pagestate == 4) { ?>
+
+	<p>Are you sure you want to purge everything submitted by user <?=$sessionId?>?&ensp;If you
+	confirm, all of the words and pitches listed on the previous page will be deleted, and
+	they will also be blocked from further participation.</p>
+
+	<p>The purge will delete <?=$userSummary->pitchesCount - $userSummary->pitchesDeletedCount?>
+	pitches (<?=$userSummary->pitchesDeletedCount?> are already deleted).&ensp;It will delete up to
+	<?=3 * $userSummary->ideasCount - $userSummary->wordsDeletedCount?> nouns and verbs
+	(<?=$userSummary->wordsDeletedCount?> are already deleted).</p>
+
+	<form method=POST>
+		<input type=hidden name=formtype value='purging' />
+		<input type=hidden name=sessionid value='<?=$sessionId?>' />
+		<button name=confirm value=yes>Yes, DELETE IT ALL</button><br/>
+		<button name=confirm value=no>No, do not delete or block</button>
+	</false>
 
 <?php } ?>
 </main>
