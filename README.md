@@ -19,6 +19,9 @@ Fourth checkin, prerelease 0.4, added no significant features but checked a lot 
 
 Fifth checkin, prerelease 0.5, adds moderator review of a user's full history, with options to block the user or purge their entire contribution.
 
+Sixth checkin adds improved moderator ability to review user histories.
+I think I'll move to a finer grained checkin schedule now and not use prerelease numbers.
+
 Yet to be added are more cosmetics, some helpful admin features, proper login (maybe including SSO), and the team play feature.
 
 ----
@@ -44,16 +47,16 @@ Database errors exit to a screen which, for now, displays an exception message o
 The former is also written to the server error log.
 
 The moderation page starts a list of the ten newest pending moderation requests, each being answerable with a set of radio buttons.
-If none are left it just has a thank-you message.
 The same page can also serve content to SPARE to insert into a popup for viewing stats about a user, so you can see if they have a record of prior bad behavior.
 From that page you can follow a link to a full history of all contributions made by that user, flagging additional trouble spots.
 If that history shows a pattern of abuse you can block them, and if it also shows little positive contribution, you can bulk delete the whole list.
+If no moderation requests are left, the starting page lists users who have had submissions deleted, so that you can review their histories.
 
 ### How to set up
 
 You'll need a host with PHP and MySql.
-Use "pitchgame tables.sql" to create the database, but don't upload it to the web host.
+Use "pitchgame tables.sql" to create the database, but don't upload that file to the web host.
 Configure your database password in php.ini as mysqli.default_pw.
 Use .htaccess or equivalent to forbid downloading php.ini or .htaccess itself.
-Also use it to make pitchgame.php the default index page in its directory, if that's desirable.
+Also use it to make pitchgame.php the default index page in its directory, if that's desirable, i.e. if the game is in its own separate directory.
 Then upload the other files and test it out.

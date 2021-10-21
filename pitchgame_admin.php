@@ -15,10 +15,12 @@ $databaseFailed = !$con->isReady();
 $resolved = 0;
 $pitchesFlagged = 0;
 $wordsFlagged = 0;
+$suspiciousUserDays = 3;
 $undine = false;
 $purgery = false;
 $moderationRequests = null;
 $userSummary = null;
+$suspiciousSessions = null;
 $history = null;
 
 function myIP()
@@ -86,7 +88,7 @@ function slink(int $sessionId)
 
 function attribution(int $id, string $when, int $sessionId, int $flagCount)
 {
-	return "$id, submitted $when by " . slink($sessionId) . 
+	return "$id, submitted $when by " . slink($sessionId) .
 	       ($flagCount > 1 ? ", has $flagCount flags" : '');
 }
 
@@ -94,8 +96,8 @@ function histatus(int $shownCount, int $flagCount, ?string $modStatus, bool $del
 {
 	if ($deleted || $modStatus)
 		return "$shownCount views, " . warn($flagCount, 'flags') .
-		       ' — <span class=warn>' . ($deleted ? 'DELETED as ' . $modStatus
-		                                          : 'judged ' . $modStatus) . "</span>\n";
+		       ' — <span class=' . ($modStatus == 'Valid' ? 'antiwarn' : 'warn') . '>' .
+		       ($deleted ? 'DELETED as ' . $modStatus : 'judged ' . $modStatus) . "</span>\n";
 	else
 		return "$shownCount views, " . warn($flagCount, 'flags') . "\n";
 }
@@ -164,15 +166,23 @@ else if (isset($_POST['formtype']) && !$databaseFailed)		// extract form values,
 				$resolved++;
 		}
 		$pagestate = 0;
+		$moderationRequests = null;		// reload a fresh set
+	}
+	else if ($_POST['formtype'] == 'usualsuspects')
+	{
+		$suspiciousUserDays = (int) $_POST['daysold'] ?: 3;
+		$pagestate = 0;
 	}
 	else if ($_POST['formtype'] == 'history')
 	{
 		$sessionId = (int) $_POST['sessionid'];
+		$suspiciousUserDays = (int) $_POST['daysold'];
 		$pagestate = 2;
 	}
 	else if ($_POST['formtype'] == 'judgeuser')
 	{
 		$sessionId = (int) $_POST['sessionid'];
+		$suspiciousUserDays = (int) $_POST['daysold'];
 		$disposal = $_POST['disposal'];
 		if ($disposal == 'purge')
 			$pagestate = 4;
@@ -210,6 +220,7 @@ else if (isset($_POST['formtype']) && !$databaseFailed)		// extract form values,
 	else if ($_POST['formtype'] == 'blocked')
 	{
 		$sessionId = (int) $_POST['sessionid'];
+		$suspiciousUserDays = (int) $_POST['daysold'];
 		$action = $_POST['block'];
 		if ($action == 'undo')
 			$databaseFailed = !($undine = $con->blockSession($sessionId, false));
@@ -218,6 +229,7 @@ else if (isset($_POST['formtype']) && !$databaseFailed)		// extract form values,
 	else if ($_POST['formtype'] == 'purging')
 	{
 		$sessionId = (int) $_POST['sessionid'];
+		$suspiciousUserDays = (int) $_POST['daysold'];
 		$confirm = $_POST['confirm'];
 		if ($confirm == 'yes')
 		{
@@ -246,6 +258,11 @@ if (!$databaseFailed)
 	{
 		$history = $con->getSessionHistory($sessionId);
 		$databaseFailed = !is_array($history);
+	}
+	if ($pagestate == 0 && !$databaseFailed && !count($moderationRequests))
+	{
+		$suspiciousSessions = $con->getSuspiciousSessions($suspiciousUserDays);
+		$databaseFailed = !is_array($suspiciousSessions);
 	}
 }
 ?>
@@ -277,7 +294,12 @@ if (!$databaseFailed)
 
 <main>
 <h1>Movie Pitch Game Administration</h1>
-<p><a href='/pitchgame/'>Return to the game</a><p>
+<p>
+	<a class=aftergap href='/pitchgame/'>Return to the game</a>
+	<?php if ($pagestate != 0) { ?>
+	<a id=backToList href='/pitchgame/pitchgame_admin.php'>Return to moderation list</a>
+	<?php } ?>
+<p>
 	
 <?php if ($databaseFailed) { ?>
 
@@ -322,11 +344,13 @@ if (!$databaseFailed)
 		<input type=hidden name=moderationrequests value="<?=enc(serialize($moderationRequests))?>" />
 	<?php foreach ($moderationRequests as $modreq) { ?>
 		<div class=fields>
-			<div>#<?=$modreq->moderationId?> »&ensp;At <?=$modreq->whenRequested?>,
-			   <?=slink($modreq->requestorSessionId)?>
-			   <!--?=$modreq->flagDupes > 2 ? '(and ' . englishNumber($modreq->flagDupes - 1) . ' others)' :
-			      ($modreq->flagDupes > 1 ? '(and one other)' : '')?-->
-			   flagged this:</div>
+			<div>
+				#<?=$modreq->moderationId?> »&ensp;At <?=$modreq->whenRequested?>,
+				<?=slink($modreq->requestorSessionId)?>
+				<!--?=$modreq->flagDupes > 2 ? '(and ' . englishNumber($modreq->flagDupes - 1) . ' others)' :
+				  ($modreq->flagDupes > 1 ? '(and one other)' : '')?-->
+				flagged this:
+			</div>
 		<?php if ($modreq->pitchId) { ?>
 			<p>
 				— Pitch <?=attribution($modreq->pitchId, $modreq->whenPitched, $modreq->pitchSessionId, $modreq->pitchFlagCount)?>:
@@ -377,8 +401,33 @@ if (!$databaseFailed)
 	<?php } else { ?>
 
 	<p>No outstanding moderation requests found.&ensp;Thanks for checking.</p>
-	
+
 	<?php } ?>
+
+	<p>So instead, here is a list of active users who have had one or more of
+	their word or pitch submissions deleted.&ensp;You can review their histories
+	and see if they need further intervention.</p>
+
+	<form method="POST" class="meta direct">
+		<input type=hidden name=formtype id=formtype value='usualsuspects' />
+		<input type=hidden name=sessionid id=lastSessionId value='' />
+
+		<p>Showing users active in the last
+		<select name=daysold id=daysOldDropdown>
+			<option value=3 <?=$suspiciousUserDays <= 5 ? 'selected' : ''?>>3</option>
+			<option value=10 <?=$suspiciousUserDays > 5 && $suspiciousUserDays < 20 ? 'selected' : ''?>>10</option>
+			<option value=30 <?=$suspiciousUserDays >= 20 && $suspiciousUserDays < 60 ? 'selected' : ''?>>30</option>
+			<option value=100 <?=$suspiciousUserDays >= 60 ? 'selected' : ''?>>100</option>
+		</select>
+		days:</p>
+
+		<?php foreach ($suspiciousSessions as $sus) { ?>
+			<p>
+				<?=$sus->deletions?> deletions, active <?=$sus->whenLastUsed?>: <?=slink($sus->sessionId)?>
+				<?=$sus->signature ? '— “' . enc($sus->signature) . '”' : '' ?>
+			</p>
+		<?php } ?>
+	</form>
 
 <?php } else if (($pagestate == 1 || $pagestate == 2) && !$userSummary) { ?>
 
@@ -396,9 +445,9 @@ if (!$databaseFailed)
 	<?php } ?>
 	<div id=userSummary>
 		<table class=userSummary>
-			<tr><td>Session <?=$sessionId?> status:</td>
-			    <td><?=$userSummary->blockedBy ? "<span class=warn>BLOCKED by $userSummary->blockedBy</span>" : ($userSummary->isTest ? 'TEST' : 'active')?> —
-			        <?=$userSummary->signature ? 'signature is “<span class=lit>' . enc($userSummary->signature) . '”</span>' : 'no default signature'?></td>
+			<tr><td>Session status:</td>
+			    <td>#<?=$sessionId?> is <?=$userSummary->blockedBy ? "<span class=warn>BLOCKED by $userSummary->blockedBy</span>" : ($userSummary->isTest ? 'TESTER' : 'active')?>
+			        — <?=$userSummary->signature ? 'signature is “<span class=lit>' . enc($userSummary->signature) . '”</span>' : 'no default signature'?></td>
 			</tr>
 			<tr><td>Connection:</td>
 			    <td>browser <?=describeBrowser($userSummary->userAgent)?>, IP address <?=enc($userSummary->ipAddress)?></td>
@@ -451,12 +500,13 @@ if (!$databaseFailed)
 	<form method="POST" class=meta>
 		<input type=hidden name=formtype id=formtype value='judgeuser' />
 		<input type=hidden name=sessionid value='<?=$sessionId?>' />
+		<input type=hidden name=daysold value='<?=$suspiciousUserDays?>' />
 		<input type=hidden name=history value='<?=enc(serialize($history))?>' />
 		<?php foreach ($history as $h) { ?>
 		<blockquote class="pitch <?=$h->deleted() ? ' dark' : ''?>">
 			<?php if ($h->pitchId) { ?>
 				<div class=lowergap>
-					<?=$h->whenPosted?> »&ensp;<?=histatus($h->pitchShownCount, $h->pitchFlagCount, $h->pitchModStatus, $h->pitchDeleted)?>
+					Written <?=$h->whenPosted?> — <?=histatus($h->pitchShownCount, $h->pitchFlagCount, $h->pitchModStatus, $h->pitchDeleted)?>
 				</div>
 				<div <?=$h->pitchDeleted ? 'class=deleted' : ''?>>
 					<div>Title: <span class=lit>“<?=enc($h->title)?>”</span></div>
@@ -467,7 +517,7 @@ if (!$databaseFailed)
 					<label class=uppergap><input type=checkbox name='attn_p<?=$h->pitchId?>' value=1 /> Flag for further attention</label>
 				<?php } ?>
 			<?php } else { ?>
-				<div><?=$h->whenPosted?> »</div>
+				<div>Submitted <?=$h->whenPosted?></div>
 				<div>
 					<?=histword('Subject', $h->subject, $h->subjectShownCount, $h->subjectFlagCount, $h->subjectModStatus, $h->subjectDeleted)?>
 					<?=histword('Verb',    $h->verb,    $h->verbShownCount,    $h->verbFlagCount,    $h->verbModStatus,    $h->verbDeleted)?>
@@ -486,13 +536,13 @@ if (!$databaseFailed)
 
 	Besides submitting any flag-for-attention checkboxes you may have set, these
 	buttons allow you to decide the fate of the user who wrote the material
-	above.&ensp;(If you choose “Purge”, the checkboxes won’t matter.)
+	above.&ensp;(If you choose “Purge Everything”, the checkboxes won’t matter.)
 
 	</p><p>
 
 	<button name=disposal value=permit>Let them keep playing</button><br/>
 	<button name=disposal value=block>Block this user (but do not purge)</button><br/>
-	<button name=disposal value=purge>Block them and purge everything above</button>
+	<button name=disposal value=purge>Block them and Purge Everything</button>
 
 	</p>
 	</form>

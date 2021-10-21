@@ -1,3 +1,14 @@
+/* TO CHANGE:
+Rename pitches.signature as name? (if it's gonna be required)
+Or have two fields for name and signature -- probably better.
+Drop sessions.team_id, snd sessions.moderation_status while in there.
+Add table participations? as a tweener of sessions and teams, with counter and date(s).
+Add sessions.last_reviewed_date, set by allow keep playing.
+*/
+
+
+-- ==== Do not deploy this file to the website. ====  This is for initial setup of the mysql database.
+
 CREATE DATABASE pitchgame;
 ALTER DATABASE pitchgame DEFAULT CHARACTER SET utf8mb4 DEFAULT COLLATE utf8mb4_unicode_520_ci;
 
@@ -13,6 +24,7 @@ CREATE TABLE pitchgame.subjects (
   moderation_flag_ct  INT           NOT NULL DEFAULT 0,
   moderation_status   VARCHAR(10)   DEFAULT NULL,
   is_deleted          BOOLEAN       NOT NULL DEFAULT 0,
+
   PRIMARY KEY            (subject_id),
   UNIQUE KEY word        (word),
   KEY last_shown         (last_shown)
@@ -26,6 +38,7 @@ CREATE TABLE pitchgame.verbs (
   moderation_flag_ct  INT           NOT NULL DEFAULT 0,
   moderation_status   VARCHAR(10)   DEFAULT NULL,
   is_deleted          BOOLEAN       NOT NULL DEFAULT 0,
+
   PRIMARY KEY            (verb_id),
   UNIQUE KEY word        (word),
   KEY last_shown         (last_shown)
@@ -39,6 +52,7 @@ CREATE TABLE pitchgame.objects (
   moderation_flag_ct  INT           NOT NULL DEFAULT 0,
   moderation_status   VARCHAR(10)   DEFAULT NULL,
   is_deleted          BOOLEAN       NOT NULL DEFAULT 0,
+
   PRIMARY KEY            (object_id),
   UNIQUE KEY word        (word),
   KEY last_shown         (last_shown)
@@ -59,6 +73,7 @@ CREATE TABLE pitchgame.pitches (
   moderation_flag_ct  INT           NOT NULL DEFAULT 0,
   moderation_status   VARCHAR(10)   DEFAULT NULL,
   is_deleted          BOOLEAN       NOT NULL DEFAULT 0,
+
   PRIMARY KEY            (pitch_id),
   UNIQUE KEY no_dupes    (session_id, subject_id, verb_id, object_id)
   KEY title              (title),
@@ -75,17 +90,18 @@ CREATE TABLE pitchgame.pitches (
 CREATE TABLE pitchgame.teams (
   team_id             INT           NOT NULL AUTO_INCREMENT,
   when_created        DATETIME      NOT NULL DEFAULT current_timestamp(),
-  token               VARCHAR(40)   NOT NULL,
+  token               VARCHAR(40)   NOT NULL,     -- also add a secret token? or just hash the public one?
   use_ct              INT           NOT NULL DEFAULT 0,
+
   PRIMARY KEY            (team_id)
 );
 
 CREATE TABLE pitchgame.sessions (
   session_id          INT           NOT NULL AUTO_INCREMENT,
   when_created        DATETIME      NOT NULL DEFAULT current_timestamp(),
-  when_last_used      DATETIME      NOT NULL DEFAULT current_timestamp(),   -- not implemented, remove?
+  when_last_used      DATETIME      NOT NULL DEFAULT current_timestamp(),
   signature           VARCHAR(100)  DEFAULT NULL COMMENT 'acts as default for pitches.signature',
-  team_id             INT           DEFAULT NULL,
+  team_id             INT           DEFAULT NULL,        -- GAAAH, needs a tweener table
   ip_address          VARCHAR(40)   DEFAULT NULL COMMENT 'for spam moderation only',
   useragent           VARCHAR(1000) DEFAULT NULL COMMENT 'for spam moderation only',
   cookie_token        VARCHAR(40)   DEFAULT NULL,
@@ -94,7 +110,8 @@ CREATE TABLE pitchgame.sessions (
   is_test             BOOLEAN       NOT NULL DEFAULT 0,  -- not implemented, remove?
   blocked_by          INT           DEFAULT NULL,
   has_debug_access    BOOLEAN       NOT NULL DEFAULT 0,
-  moderation_status   VARCHAR(10)   DEFAULT NULL,
+  moderation_status   VARCHAR(10)   DEFAULT NULL,        -- not implemented, remove?
+
   PRIMARY KEY            (session_id),
   KEY when_last_used     (when_last_used),
   KEY cookie_token       (cookie_token),
@@ -109,6 +126,7 @@ CREATE TABLE pitchgame.ratings (
   pitch_id            INT           NOT NULL,
   rating              TINYINT(2)    NOT NULL COMMENT '1 to 4, and -1 means mark as spam',
   when_rated          DATETIME      NOT NULL DEFAULT current_timestamp(),
+
   PRIMARY KEY            (rating_id),
   UNIQUE KEY no_dupes    (pitch_id, session_id),
   KEY rating_session     (session_id),
@@ -124,6 +142,7 @@ CREATE TABLE pitchgame.suggestions (
   verb_id             INT           NOT NULL,
   object_id           INT           NOT NULL,
   when_suggested      DATETIME      NOT NULL DEFAULT current_timestamp(),
+
   PRIMARY KEY            (suggestion_id),
   UNIQUE KEY no_dupes    (session_id, subject_id, verb_id, object_id)
   KEY suggestion_session (session_id),
@@ -146,6 +165,7 @@ CREATE TABLE moderations (
   when_submitted      DATETIME      NOT NULL DEFAULT current_timestamp(),
   accepted_by         INT           DEFAULT NULL COMMENT 'a request may be both accepted and rejected if it flags more than one word',
   rejected_by         INT           DEFAULT NULL,
+
   PRIMARY KEY                   (moderation_id),
   UNIQUE KEY no_dupes           (session_id, subject_id, verb_id, object_id, pitch_id)
   KEY moderation_session        (session_id),

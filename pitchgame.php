@@ -3,23 +3,24 @@
 // This page contains all views for the gameplay loop seen by regular players.
 
 // TODO: make everything use more color, maybe some fancy fonts
-//       use flag in sessions to grant access to logs and to retry randomized queries
-//       admin page: list of all users who lack spotless records, with history links
-//       admin page: cache $userSummary via serialization?
-//       support sso identity, or simple password if that's too hard
+//       team play!  need new session handling, challenge, and review queries...  add privacy option
+//       team status display with push updates... chat window?  scheduled future invite?
+//       support sso identity, or simple password if that's too hard?
+//       history of own pitches? (incentive for login)
 //
 // BUGS: "with pits" query for reviews or faves are intermittently slow... argh it's not the query itself
-//       dupes counts for words in moderations query is too high?  cross join?
 //
 // TEST: 
 //
 // IDEA: banner text curved cinemascope style via svg?
+//       purge should remove pending flags?
 //       ...maybe a link to see other pitches by the same author?  only if signature used?
 //       blocked session check could look for same IP address in recent days?  nah, ip6 ones change daily?
 //       maybe instead just a page to search for IP matches?
 //       view history of accept, reject, ban, and bulk delete by other admins?
 //       make everyone give a name even if no password?
 //       admin starts with overview of different types of adminning needs?
+//       security level set in .ini, from anonymous to named to recaptchad to sso identified to nobody new?
 
 require 'pitchdata.php';
 

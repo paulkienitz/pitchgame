@@ -1,13 +1,16 @@
 <?php
 // If it were just the game, the database would be pretty simple.  But because we have to also support
-// moderation and a feature for flagging garbage inputs, we have to track a bunch more detail.
-// The moderation features are probably more complex than the gameplay.  See pitchgame tables.sql for design.
+// moderation and features for flagging garbage inputs, we have to track a bunch more detail.
+// The moderation features are probably more complex than the gameplay.  See pitchgame tables.sql for data design.
 
 require 'sql.php';
 
 
 // objects returned by PitchGameConnection methods:
 
+// Our terminology is that an "idea" or "suggestion" is the three words input by a player,
+// whereas a "challenge" is a scrambled three word idea output by the game to prompt a pitch.
+// This structure can contain either one.
 class Challenge
 {
 	public ?string $subject;
@@ -18,17 +21,19 @@ class Challenge
 	public ?int    $objectId;
 }
 
+// A pitch includes the three word challenge which was used to prompt it.
 class Pitch extends Challenge
 {
 	public ?int    $pitchId;
 	public ?string $title;
 	public ?string $pitch;
 	public ?string $signature;
-	public ?int    $yourRating;
+	public ?int    $yourRating;        // rating properties are not always used... move to subclass?
 	public ?float  $averageRating;
 	public ?int    $ratingCount;
 }
 
+// A moderation request applies either to a pitch or to challenge words.
 class ModerationRequest extends Challenge
 {
 	public ?int    $moderationId;
@@ -49,7 +54,7 @@ class ModRequestPitch extends ModerationRequest
 /*}
 public ModRequestWords extends ModerationRequest
 {*/
-	public ?string $whenSubject;		// when first submitted... add dupe count?
+	public ?string $whenSubject;		// when first submitted
 	public ?int    $subjectSessionId;	// who first submitted
 	public ?int    $subjectFlagCount;
 	public ?int    $subjectDupes;
@@ -67,7 +72,7 @@ public ModRequestWords extends ModerationRequest
 class SessionSummary
 {
 	public ?int    $blockedBy;
-	public ?string $moderationStatus;
+	public ?string $moderationStatus;   // not used
 	public ?bool   $isTest;
 	public ?string $ipAddress;
 	public ?string $userAgent;
@@ -96,7 +101,7 @@ class SessionSummary
 	public ?int    $modRequestsRejectedCount;
 }
 
-class HistoryEntry extends Challenge
+class HistoryEntry extends Challenge   // should extend Pitch
 {
 	public ?string $whenPosted;
 	public ?int    $pitchId;
@@ -129,6 +134,12 @@ class HistoryEntry extends Challenge
 	                                   $this->subjectDeleted && $this->verbDeleted && $this->objectDeleted; }
 }
 
+class SuspiciousSession {
+	public ?int    $sessionId;
+	public ?string $signature;
+	public ?string $whenLastUsed;
+	public ?int    $deletions;
+}
 
 class PitchGameConnection
 {
@@ -218,6 +229,8 @@ class PitchGameConnection
 		}
 	}
 
+	// How exactly should we handle sessions in team play?  Does the same cookie apply to team and non-team sessions?
+
 	public function addWords(string $initialSubject, string $initialVerb, string $initialObject)
 	{
 		try
@@ -252,7 +265,7 @@ class PitchGameConnection
 		}
 	}
 
-	// The purpose of the seed is to prevent users frim changing their challenge with the refresh button.
+	// The purpose of the seed is to prevent users from changing their challenge with the refresh button.
 	public function getChallenge(int $seed)
 	{
 		try
@@ -275,6 +288,7 @@ class PitchGameConnection
 			         rao AS ( SELECT object_id, word  FROM obj ORDER BY rand(?) LIMIT 1 )
 			    SELECT subject_id, ras.word AS subject_noun, verb_id, rav.word AS verb, object_id, rao.word AS object_noun
 			      FROM ras, rav, rao');
+			// todo: $getChallengeFromTeam version of query
 
 			$challenge = new Challenge();
 			if ($getChallenge->select($seed, $seed, $seed) &&
@@ -374,7 +388,7 @@ class PitchGameConnection
 	{
 		try
 		{
-			// XXX sometimes nonperformant, inteittently:
+			// XXX sometimes nonperformant, intermittently:
 			$getPitches = new Selector($this->marie, $this->log, 'iii', '
 			    WITH pits AS ( SELECT pitch_id, subject_id, verb_id, object_id, title, pitch, signature FROM pitches p
 			                    WHERE is_deleted = false
@@ -391,6 +405,7 @@ class PitchGameConnection
 			                JOIN verbs v USING (verb_id)
 			                JOIN objects o USING (object_id)
 			     ORDER BY rand(?) LIMIT 4');   // limit can’t be parameterized, apparently
+			// todo: add $getPitchesFromTeam version of query
 			$updatePitch = new Updater($this->marie, $this->log, 'i',
 			    'UPDATE pitches SET last_shown = now(), shown_ct = shown_ct + 1 WHERE pitch_id  = ?');
 
@@ -461,7 +476,7 @@ class PitchGameConnection
 	{
 		try
 		{
-			// XXX this can be nonperformant
+			// XXX this can be nonperformant, intermittently
 			$getPitches = new Selector($this->marie, $this->log, 'iii', '
 			    WITH pits AS ( SELECT pitch_id, subject_id, verb_id, object_id, title, pitch, signature, rating
 		                         FROM pitches p JOIN ratings r USING (pitch_id)
@@ -509,35 +524,38 @@ class PitchGameConnection
 		try
 		{
 			$getRequests = new Selector($this->marie, $this->log, '', '
-			    WITH mrq AS ( SELECT moderation_id, pitch_id,
-			                         m.subject_id, min(s.suggestion_id) AS subj_sugg, count(s.suggestion_id) AS subj_dupe,
-			                         m.verb_id,    min(v.suggestion_id) AS verb_sugg, count(v.suggestion_id) AS verb_dupe,
-			                         m.object_id,  min(o.suggestion_id) AS obj_sugg,  count(o.suggestion_id) AS obj_dupe
+			    WITH mrq AS ( SELECT m.moderation_id, m.session_id, m.when_submitted,
+			                         p.pitch_id, s.subject_id, v.verb_id, o.object_id,
+			                         min(ss.suggestion_id) AS subj_sugg, count(DISTINCT ss.suggestion_id) AS subj_dupe,
+			                         min(sv.suggestion_id) AS verb_sugg, count(DISTINCT sv.suggestion_id) AS verb_dupe,
+			                         min(so.suggestion_id) AS obj_sugg,  count(DISTINCT so.suggestion_id) AS obj_dupe
 			                    FROM moderations m LEFT JOIN
-			                         suggestions s ON m.subject_id = s.subject_id LEFT JOIN
-			                         suggestions v ON m.verb_id    = v.verb_id    LEFT JOIN
-			                         suggestions o ON m.object_id  = o.object_id
-			                   WHERE accepted_by IS NULL AND rejected_by IS NULL
-			                     AND EXISTS ( SELECT 1 FROM subjects
-			                                   WHERE subject_id = m.subject_id AND is_deleted = false AND moderation_status IS NULL
-			                                  UNION SELECT 1 from verbs
-			                                   WHERE verb_id = m.verb_id AND is_deleted = false AND moderation_status IS NULL
-			                                  UNION SELECT 1 from objects
-			                                   WHERE object_id = m.object_id AND is_deleted = false AND moderation_status IS NULL
-			                                  UNION SELECT 1 from pitches
-			                                   WHERE pitch_id = m.pitch_id AND is_deleted = false AND moderation_status IS NULL )
-			                   GROUP BY moderation_id, when_submitted, pitch_id, subject_id, verb_id, object_id ),
-			         muq as ( SELECT pitch_id, subject_id, verb_id, object_id,
+			                         pitches p  ON m.pitch_id   = p.pitch_id   AND p.is_deleted = FALSE
+			                                   AND p.moderation_status IS NULL AND p.moderation_flag_ct > 0 LEFT JOIN
+			                         subjects s ON m.subject_id = s.subject_id AND s.is_deleted = FALSE
+			                                   AND s.moderation_status IS NULL AND s.moderation_flag_ct > 0 LEFT JOIN
+			                         verbs v    ON m.verb_id = v.verb_id    AND v.is_deleted = FALSE
+			                                   AND v.moderation_status IS NULL AND v.moderation_flag_ct > 0 LEFT JOIN
+			                         objects o  ON m.object_id  = o.object_id  AND o.is_deleted = FALSE
+			                                   AND o.moderation_status IS NULL AND o.moderation_flag_ct > 0 LEFT JOIN
+			                         suggestions ss ON s.subject_id = ss.subject_id LEFT JOIN
+			                         suggestions sv ON v.verb_id    = sv.verb_id    LEFT JOIN
+			                         suggestions so ON o.object_id  = so.object_id
+			                   GROUP BY m.moderation_id, m.session_id, m.when_submitted, p.pitch_id, s.subject_id, v.verb_id, o.object_id ),
+			         -- this flattens multiple complaints about the same word or pitch, but is not able to flatten cases where
+			         -- one complaint mentions a single word and another mentions the same word along with one or two others:
+			         muq as ( SELECT pitch_id, session_id, when_submitted, subject_id, verb_id, object_id,
 			                         subj_sugg, verb_sugg, obj_sugg, subj_dupe, verb_dupe, obj_dupe,
 			                         count(DISTINCT moderation_id) AS flag_dupe,
 			                         max(moderation_id) AS last_req_id, min(moderation_id) AS first_req_id
-			                    FROM mrq GROUP BY pitch_id, subject_id, verb_id, object_id,
-			                                      subj_sugg, verb_sugg, obj_sugg, subj_dupe, verb_dupe, obj_dupe ),
-			         ten as ( SELECT moderation_id, session_id, when_submitted,
-			                         muq.pitch_id, muq.subject_id, muq.verb_id, muq.object_id,
+			                    FROM mrq WHERE COALESCE(pitch_id, subject_id, verb_id, object_id) IS NOT NULL
+			                   GROUP BY pitch_id, subject_id, verb_id, object_id,
+			                            subj_sugg, verb_sugg, obj_sugg, subj_dupe, verb_dupe, obj_dupe ),
+			         ten as ( SELECT last_req_id AS moderation_id,
+			                         session_id, when_submitted, pitch_id, subject_id, verb_id, object_id,
 			                         subj_sugg, verb_sugg, obj_sugg, subj_dupe, verb_dupe, obj_dupe, flag_dupe
-			                    FROM muq INNER JOIN moderations ON last_req_id = moderation_id
-			                   ORDER BY last_req_id - first_req_id DESC, moderation_id DESC
+			                    FROM muq
+			                   ORDER BY last_req_id - first_req_id DESC, last_req_id DESC
 			                   LIMIT 10 )
 			    SELECT ten.moderation_id, ten.when_submitted, ten.session_id AS requestor_session_id, ten.flag_dupe,
 			           p.session_id AS pitch_session_id, ss.session_id AS subject_session_id,
@@ -547,17 +565,18 @@ class PitchGameConnection
 			           p.when_submitted AS when_pitch, ss.when_suggested AS when_subj,
 			           sv.when_suggested AS when_verb, so.when_suggested AS when_obj,
 			           p.pitch_id, p.title, p.pitch, p.signature, ten.subj_dupe, ten.verb_dupe, ten.obj_dupe,
-			           ifnull(ps.subject_id, s.subject_id) AS subject_id, ifnull(ps.word, s.word) AS subject,
-			           ifnull(pv.verb_id,    v.verb_id)    AS verb_id,    ifnull(pv.word, v.word) AS verb,
-			           ifnull(po.object_id,  o.object_id)  AS object_id,  ifnull(po.word, o.word) AS object
+			           -- ifnull(ps.subject_id, s.subject_id) AS subject_id, ifnull(ps.word, s.word) AS subject,
+			           -- ifnull(pv.verb_id,    v.verb_id)    AS verb_id,    ifnull(pv.word, v.word) AS verb,
+			           -- ifnull(po.object_id,  o.object_id)  AS object_id,  ifnull(po.word, o.word) AS object
+			           s.subject_id, s.word AS subject, v.verb_id, v.word AS verb, o.object_id, o.word AS object
 			      FROM ten LEFT JOIN
-			           pitches p   ON ten.pitch_id = p.pitch_id AND p.is_deleted = false AND p.moderation_status IS NULL LEFT JOIN
-			           subjects ps ON p.subject_id = ps.subject_id LEFT JOIN
-			           verbs pv    ON p.verb_id    = pv.verb_id    LEFT JOIN
-			           objects po  ON p.object_id  = po.object_id  LEFT JOIN
-			           subjects s ON ten.subject_id = s.subject_id AND s.is_deleted = false AND s.moderation_status IS NULL LEFT JOIN
-			           verbs v    ON ten.verb_id    = v.verb_id    AND v.is_deleted = false AND v.moderation_status IS NULL LEFT JOIN
-			           objects o  ON ten.object_id  = o.object_id  AND o.is_deleted = false AND o.moderation_status IS NULL LEFT JOIN
+			           pitches p   ON ten.pitch_id = p.pitch_id    LEFT JOIN
+			           -- subjects ps ON p.subject_id = ps.subject_id LEFT JOIN
+			           -- verbs pv    ON p.verb_id    = pv.verb_id    LEFT JOIN
+			           -- objects po  ON p.object_id  = po.object_id  LEFT JOIN
+			           subjects s ON ten.subject_id = s.subject_id LEFT JOIN
+			           verbs v    ON ten.verb_id    = v.verb_id    LEFT JOIN
+			           objects o  ON ten.object_id  = o.object_id  LEFT JOIN
 			           suggestions ss ON ten.subj_sugg = ss.suggestion_id LEFT JOIN
 			           suggestions sv ON ten.verb_sugg = sv.suggestion_id LEFT JOIN
 			           suggestions so ON ten.obj_sugg  = so.suggestion_id');
@@ -660,19 +679,19 @@ class PitchGameConnection
 			if (!$this->absolvePitch)
 			{
 				$this->absolvePitch = new Updater($this->marie, $this->log, 'i',
-				    'UPDATE pitches SET moderation_flag_ct = 0, moderation_status = NULL WHERE pitch_id = ?');
+				    'UPDATE pitches SET moderation_flag_ct = 0, moderation_status = \'Valid\' WHERE pitch_id = ?');
 				$this->judgePitch = new Updater($this->marie, $this->log, 'isi',
 				    'UPDATE pitches SET is_deleted = ?, moderation_status = ? WHERE pitch_id = ?');
 				$this->absolveSubject = new Updater($this->marie, $this->log, 'i',
-				    'UPDATE subjects SET moderation_flag_ct = 0, moderation_status = NULL WHERE subject_id = ?');
+				    'UPDATE subjects SET moderation_flag_ct = 0, moderation_status = \'Valid\' WHERE subject_id = ?');
 				$this->judgeSubject = new Updater($this->marie, $this->log, 'isi',
 				    'UPDATE subjects SET is_deleted = ?, moderation_status = ? WHERE subject_id = ?');
 				$this->absolveVerb = new Updater($this->marie, $this->log, 'i',
-				    'UPDATE verbs SET moderation_flag_ct = 0, moderation_status = NULL WHERE verb_id = ?');
+				    'UPDATE verbs SET moderation_flag_ct = 0, moderation_status = \'Valid\' WHERE verb_id = ?');
 				$this->judgeVerb = new Updater($this->marie, $this->log, 'isi',
 				    'UPDATE verbs SET is_deleted = ?, moderation_status = ? WHERE verb_id = ?');
 				$this->absolveObject = new Updater($this->marie, $this->log, 'i',
-				    'UPDATE objects SET moderation_flag_ct = 0, moderation_status = NULL WHERE object_id = ?');
+				    'UPDATE objects SET moderation_flag_ct = 0, moderation_status = \'Valid\' WHERE object_id = ?');
 				$this->judgeObject = new Updater($this->marie, $this->log, 'isi',
 				    'UPDATE objects SET is_deleted = ?, moderation_status = ? WHERE object_id = ?');
 				// acceptRequest and rejectRequest may both be used; if so, leave both fields set to indicate mixed outcome
@@ -683,7 +702,7 @@ class PitchGameConnection
 			}
 			if ($modreq->pitchId && $judgmentP)
 			{
-				$this->interpretJudgment($judgmentP, $delete, $reject, $code);
+				$this->interpretJudgment($judgmentP, $delete, $reject);
 				if ($reject)
 				{
 					$this->absolvePitch->update($modreq->pitchId);
@@ -691,13 +710,13 @@ class PitchGameConnection
 				}
 				else
 				{
-					$this->judgePitch->update($delete, $code, $modreq->pitchId);
+					$this->judgePitch->update($delete, $judgmentP, $modreq->pitchId);
 					$this->acceptRequest->update($this->sessionId, $modreq->moderationId);
 				}
 			}
 			if ($modreq->subjectId && $judgmentS)
 			{
-				$this->interpretJudgment($judgmentS, $delete, $reject, $code);
+				$this->interpretJudgment($judgmentS, $delete, $reject);
 				if ($reject)
 				{
 					$this->absolveSubject->update($modreq->subjectId);
@@ -705,13 +724,13 @@ class PitchGameConnection
 				}
 				else
 				{
-					$this->judgeSubject->update($delete, $code, $modreq->subjectId);
+					$this->judgeSubject->update($delete, $judgmentS, $modreq->subjectId);
 					$this->acceptRequest->update($this->sessionId, $modreq->moderationId);
 				}
 			}
 			if ($modreq->verbId && $judgmentV)
 			{
-				$this->interpretJudgment($judgmentV, $delete, $reject, $code);
+				$this->interpretJudgment($judgmentV, $delete, $reject);
 				if ($reject)
 				{
 					$this->absolveVerb->update($modreq->verbId);
@@ -719,13 +738,13 @@ class PitchGameConnection
 				}
 				else
 				{
-					$this->judgeVerb->update($delete, $code, $modreq->verbId);
+					$this->judgeVerb->update($delete, $judgmentV, $modreq->verbId);
 					$this->acceptRequest->update($this->sessionId, $modreq->moderationId);
 				}
 			}
 			if ($modreq->objectId && $judgmentO)
 			{
-				$this->interpretJudgment($judgmentO, $delete, $reject, $code);
+				$this->interpretJudgment($judgmentO, $delete, $reject);
 				if ($reject)
 				{
 					$this->absolveObject->update($modreq->objectId);
@@ -733,7 +752,7 @@ class PitchGameConnection
 				}
 				else
 				{
-					$this->judgeObject->update($delete, $code, $modreq->objectId);
+					$this->judgeObject->update($delete, $jydgmentO, $modreq->objectId);
 					$this->acceptRequest->update($this->sessionId, $modreq->moderationId);
 				}
 			}
@@ -745,7 +764,7 @@ class PitchGameConnection
 		}
 	}
 	
-	private function interpretJudgment(?string $judgment, bool &$delete, bool &$reject, ?string &$code)
+	private function interpretJudgment(?string $judgment, bool &$delete, bool &$reject)
 	{
 		$reject = false;
 		$delete = false;
@@ -753,7 +772,6 @@ class PitchGameConnection
 		{
 			case 'Valid':
 				$reject = true;
-				$code = null;
 				break;
 			case 'Non-noun':
 			case 'Non-verb':
@@ -761,10 +779,8 @@ class PitchGameConnection
 			case 'Spam':
 			case 'Evil':
 				$delete = true;
-				$code = $judgment;
 				break;
 			default: 		// Dubious, Spelling, etc
-				$code = $judgment;
 				break;
 		}
 	}
@@ -781,9 +797,9 @@ class PitchGameConnection
 			                         sum(s.moderation_flag_ct + v.moderation_flag_ct + o.moderation_flag_ct) as word_flag_ct,
 			                         sum(s.is_deleted + v.is_deleted + o.is_deleted) as word_deleted_ct,
 			                         sum(s.shown_ct + v.shown_ct + o.shown_ct) AS word_shown_ct,
-			                         sum(CASE WHEN s.moderation_status IS NULL OR s.is_deleted = true THEN 0 ELSE 1 END +
-			                             CASE WHEN v.moderation_status IS NULL OR v.is_deleted = true THEN 0 ELSE 1 END +
-			                             CASE WHEN o.moderation_status IS NULL OR o.is_deleted = true THEN 0 ELSE 1 END) AS word_moderated_ct
+			                         sum(CASE WHEN ifnull(s.moderation_status, \'Valid\') = \'Valid\' OR s.is_deleted = true THEN 0 ELSE 1 END +
+			                             CASE WHEN ifnull(v.moderation_status, \'Valid\') = \'Valid\' OR v.is_deleted = true THEN 0 ELSE 1 END +
+			                             CASE WHEN ifnull(o.moderation_status, \'Valid\') = \'Valid\' OR o.is_deleted = true THEN 0 ELSE 1 END) AS word_moderated_ct
 			                    FROM ses INNER JOIN
 			                         suggestions g USING (session_id) INNER JOIN
 			                         subjects s    USING (subject_id) INNER JOIN
@@ -879,6 +895,42 @@ class PitchGameConnection
 		catch (Throwable $ex)
 		{
 			$this->marie->rollback();			
+			$this->saveError($ex);
+		}
+	}
+
+	public function getSuspiciousSessions(int $ageInDays)
+	{
+		try
+		{
+			$findUsers = new Selector($this->marie, $this->log, 'i', '
+			    WITH words AS ( SELECT session_id, signature, when_last_used,
+			                           sum(s.is_deleted + v.is_deleted + o.is_deleted) AS word_deletions
+			                      FROM sessions INNER JOIN
+			                           suggestions g USING (session_id) INNER JOIN
+			                           subjects s    USING (subject_id) INNER JOIN
+			                           verbs v       USING (verb_id)    INNER JOIN
+			                           objects o     USING (object_id) 
+			                     WHERE blocked_by IS NULL AND datediff(now(), when_last_used) <= ?
+			                     GROUP BY session_id, signature, when_last_used )
+			    SELECT session_id, words.signature, when_last_used, word_deletions + sum(ifnull(p.is_deleted, 0)) AS deletions
+			      FROM words LEFT OUTER JOIN pitches p USING (session_id)
+			     WHERE word_deletions > 0 OR p.is_deleted <> 0
+			     GROUP BY session_id, signature, when_last_used
+			     ORDER BY deletions DESC, when_last_used DESC');
+
+			$results = [];
+			$findUsers->select($ageInDays);
+			do {
+				$u = new SuspiciousSession();
+				$gotten = $findUsers->getRow($u->sessionId, $u->signature, $u->whenLastUsed, $u->deletions);
+				if ($gotten)
+					$results[] = $u;
+			} while ($gotten);
+			return $results;
+		}
+		catch (Throwable $ex)
+		{
 			$this->saveError($ex);
 		}
 	}

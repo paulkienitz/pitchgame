@@ -32,7 +32,7 @@ function showLog(ev)
 	return false;
 }
 
-function randomize(ev)   // argh thus is useless...
+function randomize(ev)
 {
 	var form = document.forms[0];
 	var seedy = form ? form['seed'] : undefined;
@@ -94,6 +94,37 @@ function beHistorical(ev)
 	return false;
 }
 
+function beHistoricalDirectly(ev)
+{
+	var sessionId = this.id.substring(8);
+	var lsi = document.getElementById('lastSessionId');
+	lsi.value = sessionId + '';
+	beHistorical(ev);
+}
+
+function changeDays(ev)
+{
+	var formtype = document.getElementById('formtype');
+	var form = document.forms[0];
+	if (form && formtype)
+	{
+		formtype.value = 'usualsuspects';
+		form.submit();
+	}
+	ev.preventDefault();
+	ev.stopPropagation();
+	return false;
+}
+
+function changeDaysMaybe(ev)
+{
+	var form = document.forms[0];
+	if (form && form['daysold'] && form['daysold'].value != '3')
+		return changeDays(ev);
+	else
+		return true;
+}
+
 function showStars(pitchId, rating)
 {
 	for (var r = 1; r <= 4; r++)
@@ -145,8 +176,11 @@ function init()
 	attach('#moderato', beModerate);
 	attach('.star', rateWithStars);
 	attach('.spam', rateAsSpamOrClear);
-	attach('.slinky', showSessionSummary);
-    attach('#historicize', beHistorical);       // normally used only in a SPARE popup
+	attach('.fields .slinky', showSessionSummary);
+	attach('.direct .slinky', beHistoricalDirectly);
+	attach('#historicize', beHistorical);       // normally used only in a SPARE popup
+	attach('#daysOldDropdown', changeDays, 'change');
+	attach('#backToList', changeDaysMaybe);
 }
 
 window.addEventListener("DOMContentLoaded", init);

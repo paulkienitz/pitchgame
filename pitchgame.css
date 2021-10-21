@@ -190,7 +190,7 @@ form p:last-child {
 	margin: 1.5em 2em;
 }
 .pitch.dark {
-	background: #dddddd;
+	background: #EEEEEE;
 }
 .star {
 	color: #DDAA00;
@@ -248,6 +248,7 @@ form p:last-child {
 .meta {
 	font-family: sans-serif;
 	font-size: 90%;
+	color: #444444;
 }
 .meta .fields {
 	margin-top: 2em;
@@ -258,6 +259,7 @@ form p:last-child {
 .lit {
 	font-family: serif;
 	font-size: 111%;
+	color: black;
 }
 .qq {
 	font-size: 120%;
@@ -271,11 +273,17 @@ form p:last-child {
 	font-family: sans-serif;
 	font-size: 90%;
 }
+.userSummary td {
+	vertical-align: middle;
+}
+.userSummary td:last-child {
+	overflow-wrap: anywhere;   /* no way to specify break on punctuation but not letters */
+}
 .warn {
 	color: #990000;
 }
-.userSummary td {
-	vertical-align: middle;
+.antiwarn {
+	color: #008800;
 }
 .browse {
 	text-decoration: underline;
