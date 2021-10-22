@@ -2,8 +2,6 @@
 <?php
 // This page is for moderators and administrators.  Set it to be accessible only with a password.
 
-// ...maybe start with master list of moderation stats and links: requests, iffy users, history of other moderators if you have debug rights?
-
 require 'pitchdata.php';
 
 $pagestate = 0;			// 0 = outstanding moderation requests, 1 = user summary, 2 = user history, 3 = just blocked, 4 = confirm purge
@@ -92,20 +90,23 @@ function attribution(int $id, string $when, int $sessionId, int $flagCount)
 	       ($flagCount > 1 ? ", has $flagCount flags" : '');
 }
 
-function histatus(int $shownCount, int $flagCount, ?string $modStatus, bool $deleted)
+function judgment($modStatus, $deleted, $prefix, $postfix)
 {
-	if ($deleted || $modStatus)
-		return "$shownCount views, " . warn($flagCount, 'flags') .
-		       ' — <span class=' . ($modStatus == 'Valid' ? 'antiwarn' : 'warn') . '>' .
-		       ($deleted ? 'DELETED as ' . $modStatus : 'judged ' . $modStatus) . "</span>\n";
-	else
-		return "$shownCount views, " . warn($flagCount, 'flags') . "\n";
+	return !$modStatus && !$deleted ? '' :
+	       "$prefix<span class=" . ($modStatus == 'Valid' ? 'antiwarn' : 'warn') . '>' .
+	       ($deleted ? 'DELETED as ' . $modStatus : 'judged ' . $modStatus) . "</span>$postfix\n";
 }
 
-function histword(string $part, string $word, int $shownCount, int $flagCount, ?string $modStatus, bool $deleted)
+function histatus(HistoryPart $hp)
 {
-	return "<br/>$part <span class='lit" . ($deleted ? ' deleted' : '') . "'>“" . enc($word) . '”</span> — ' .
-	       histatus($shownCount, $flagCount, $modStatus, $deleted);
+	return !is_numeric($hp->shownCount) ? judgment($hp->modStatus, $hp->deleted, '&ensp;(', ')') :
+	       " — $hp->shownCount views, " . warn($hp->flagCount, 'flags') . judgment($hp->modStatus, $hp->deleted, ' — ', '');
+}
+
+function histword(string $part, ?string $word, HistoryPart $hp)
+{
+	return !$word ? '' :
+	       "<br/>$part <span class='lit" . ($hp->deleted ? ' deleted' : '') . "'>“" . enc($word) . '”</span>' . histatus($hp);
 }
 
 function askWord(string $kind, int $id, string $when, int $sessionId, int $flagCount, int $dupes, string $word, int $moderationId)
@@ -193,7 +194,7 @@ else if (isset($_POST['formtype']) && !$databaseFailed)		// extract form values,
 			{
 				$pitcher = !!$_POST["attn_p$h->pitchId"];
 				$suggester = !!$_POST["attn_g$h->suggestionId"];
-				if ($pitcher && $h->liveP())
+				if ($pitcher && $h->p->live())
 				{
 					if ($con->ratePitch($h->pitchId, -1))
 						++$pitchesFlagged;
@@ -202,8 +203,8 @@ else if (isset($_POST['formtype']) && !$databaseFailed)		// extract form values,
 				}
 				else if ($suggester)
 				{
-					if ($con->flagWordsForModeration($h, $h->liveS(), $h->liveV(), $h->liveO()))
-						$wordsFlagged += (int) $h->liveS() + (int) $h->liveV() + (int) $h->liveO();
+					if ($con->flagWordsForModeration($h, $h->s->live(), $h->v->live(), $h->o->live()))
+						$wordsFlagged += (int) $h->s->live() + (int) $h->v->live() + (int) $h->o->live();
 					else
 						$databaseFailed = true;
 				}
@@ -214,7 +215,10 @@ else if (isset($_POST['formtype']) && !$databaseFailed)		// extract form values,
 				$pagestate = 3;
 			}
 			else
+			{
+				$databaseFailed = !$con->blockSession($sessionId, false);   // sets when_last_reviewed
 				$pagestate = 0;
+			}
 		}
 	}
 	else if ($_POST['formtype'] == 'blocked')
@@ -505,25 +509,35 @@ if (!$databaseFailed)
 		<?php foreach ($history as $h) { ?>
 		<blockquote class="pitch <?=$h->deleted() ? ' dark' : ''?>">
 			<?php if ($h->pitchId) { ?>
+				<?php if ($h->moderationId) { ?>
 				<div class=lowergap>
-					Written <?=$h->whenPosted?> — <?=histatus($h->pitchShownCount, $h->pitchFlagCount, $h->pitchModStatus, $h->pitchDeleted)?>
+					Flagged this pitch <?=$h->whenPosted?><?=judgment($h->p->modStatus, $h->p->deleted, ' (', ')')?>
 				</div>
-				<div <?=$h->pitchDeleted ? 'class=deleted' : ''?>>
+				<?php } else { ?>
+				<div class=lowergap>
+					Written <?=$h->whenPosted?><?=histatus($h->p)?>
+				</div>
+				<?php } ?>
+				<div <?=$h->p->deleted ? 'class=deleted' : ''?>>
 					<div>Title: <span class=lit>“<?=enc($h->title)?>”</span></div>
 					<div>Pitch: <span class=lit>“<?=enc($h->pitch)?>”</div>
 					<div>Signature: <?=$signature ? '<span class=lit>“' . enc($h->signature) . '”</span>' : '(none)'?></div>
 				</div>
-				<?php if ($h->liveP()) { ?>
+				<?php if ($h->p->live()) { ?>
 					<label class=uppergap><input type=checkbox name='attn_p<?=$h->pitchId?>' value=1 /> Flag for further attention</label>
 				<?php } ?>
 			<?php } else { ?>
+				<?php if ($h->moderationId) { ?>
+				<div>Flagged bad word <?=$h->whenPosted?></div>
+				<?php } else { ?>
 				<div>Submitted <?=$h->whenPosted?></div>
+				<?php } ?>
 				<div>
-					<?=histword('Subject', $h->subject, $h->subjectShownCount, $h->subjectFlagCount, $h->subjectModStatus, $h->subjectDeleted)?>
-					<?=histword('Verb',    $h->verb,    $h->verbShownCount,    $h->verbFlagCount,    $h->verbModStatus,    $h->verbDeleted)?>
-					<?=histword('Object',  $h->object,  $h->objectShownCount,  $h->objectFlagCount,  $h->objectModStatus,  $h->objectDeleted)?>
+					<?=histword('Subject', $h->subject, $h->s)?>
+					<?=histword('Verb',    $h->verb,    $h->v)?>
+					<?=histword('Object',  $h->object,  $h->o)?>
 				</div>
-				<?php if ($h->liveS() || $h->liveV() || $h->liveO()) { ?>
+				<?php if ($h->s->live() || $h->v->live() || $h->o->live()) { ?>
 					<div class=uppergap>
 						<label><input type=checkbox name='attn_g<?=$h->suggestionId?>' value=1 /> Flag for further attention</label>
 					</div>
@@ -568,8 +582,8 @@ if (!$databaseFailed)
 
 	<p>The purge will delete <?=$userSummary->pitchesCount - $userSummary->pitchesDeletedCount?>
 	pitches (<?=$userSummary->pitchesDeletedCount?> are already deleted).&ensp;It will delete up to
-	<?=3 * $userSummary->ideasCount - $userSummary->wordsDeletedCount?> nouns and verbs
-	(<?=$userSummary->wordsDeletedCount?> are already deleted).</p>
+	<?=3 * $userSummary->ideasCount - $userSummary->wordsDeletedCount?> nouns and verbs, omitting
+	any also used by other players (<?=$userSummary->wordsDeletedCount?> are already deleted).</p>
 
 	<form method=POST>
 		<input type=hidden name=formtype value='purging' />

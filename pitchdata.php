@@ -1,16 +1,18 @@
 <?php
 // If it were just the game, the database would be pretty simple.  But because we have to also support
 // moderation and features for flagging garbage inputs, we have to track a bunch more detail.
-// The moderation features are probably more complex than the gameplay.  See pitchgame tables.sql for data design.
+// The moderation features are more complex than the gameplay.  See pitchgame tables.sql for data design.
+
+// Split this up into player and admin subclasses?
 
 require 'sql.php';
 
 
 // objects returned by PitchGameConnection methods:
 
-// Our terminology is that an "idea" or "suggestion" is the three words input by a player,
-// whereas a "challenge" is a scrambled three word idea output by the game to prompt a pitch.
-// This structure can contain either one.
+// Our terminology is that a "suggestion" is the three words input by a player, whereas
+// a "challenge" is a scrambled three word idea output by the game to prompt a pitch.
+// This structure can contain either one.  We sometimes use the word "idea" for either.
 class Challenge
 {
 	public ?string $subject;
@@ -28,32 +30,25 @@ class Pitch extends Challenge
 	public ?string $title;
 	public ?string $pitch;
 	public ?string $signature;
-	public ?int    $yourRating;        // rating properties are not always used... move to subclass?
+}
+
+class RatedPitch extends Pitch
+{
+	public ?int    $yourRating;
 	public ?float  $averageRating;
 	public ?int    $ratingCount;
 }
 
 // A moderation request applies either to a pitch or to challenge words.
-class ModerationRequest extends Challenge
+class ModerationRequest extends Pitch
 {
 	public ?int    $moderationId;
 	public ?string $whenRequested;
 	public ?int    $requestorSessionId;
 	public ?int    $flagDupes;
-/*}
-class ModRequestPitch extends ModerationRequest
-{*/
-	public ?int    $pitchId;
-	public ?int    $pitchSessionId;
 	public ?string $whenPitched;
+	public ?int    $pitchSessionId;
 	public ?int    $pitchFlagCount;
-	public ?string $title;
-	public ?string $pitch;
-	public ?string $signature;
-	// challenge words are those that inspired the pitch
-/*}
-public ModRequestWords extends ModerationRequest
-{*/
 	public ?string $whenSubject;		// when first submitted
 	public ?int    $subjectSessionId;	// who first submitted
 	public ?int    $subjectFlagCount;
@@ -66,20 +61,16 @@ public ModRequestWords extends ModerationRequest
 	public ?int    $objectSessionId;
 	public ?int    $objectFlagCount;
 	public ?int    $objectDupes;
-	// challenge words are null for parts not flagged
 }
 
 class SessionSummary
 {
 	public ?int    $blockedBy;
-	public ?string $moderationStatus;   // not used
 	public ?bool   $isTest;
 	public ?string $ipAddress;
 	public ?string $userAgent;
 	public ?string $signature;
 	public ?string $whenCreated;
-	public ?int    $teamId;
-	public ?int    $teamUseCount;
 	public ?int    $ideasCount;
 	public ?string $ideasEarliest;
 	public ?string $ideasLatest;
@@ -101,37 +92,30 @@ class SessionSummary
 	public ?int    $modRequestsRejectedCount;
 }
 
-class HistoryEntry extends Challenge   // should extend Pitch
+class HistoryPart
 {
-	public ?string $whenPosted;
-	public ?int    $pitchId;
-	public ?int    $suggestionId;
-	public ?string $title;
-	public ?string $pitch;
-	public ?string $signature;
-	public ?int    $pitchShownCount;
-	public ?int    $subjectShownCount;
-	public ?int    $verbShownCount;
-	public ?int    $objectShownCount;
-	public ?int    $pitchFlagCount;
-	public ?int    $subjectFlagCount;
-	public ?int    $verbFlagCount;
-	public ?int    $objectFlagCount;
-	public ?string $pitchModStatus;
-	public ?string $subjectModStatus;
-	public ?string $verbModStatus;
-	public ?string $objectModStatus;
-	public ?bool   $pitchDeleted;
-	public ?bool   $subjectDeleted;
-	public ?bool   $verbDeleted;
-	public ?bool   $objectDeleted;
+	public ?int     $shownCount;
+	public ?int     $flagCount;
+	public ?string  $modStatus;
+	public ?bool    $deleted;
+	public function live() { return $this->deleted === false && !$this->modStatus && $this->flagCount === 0; }
+}
 
-	public function liveP()   { return !$this->pitchDeleted   && !$this->pitchModStatus   && !$this->pitchFlagCount;   }
-	public function liveS()   { return !$this->subjectDeleted && !$this->subjectModStatus && !$this->subjectFlagCount; }
-	public function liveV()   { return !$this->verbDeleted    && !$this->verbModStatus    && !$this->verbFlagCount;    }
-	public function liveO()   { return !$this->objectDeleted  && !$this->objectModStatus  && !$this->objectFlagCount;  }
-	public function deleted() { return $this->pitchId ? $this->pitchDeleted :
-	                                   $this->subjectDeleted && $this->verbDeleted && $this->objectDeleted; }
+class HistoryEntry extends Pitch
+{
+	public ?string      $whenPosted;
+	public ?int         $suggestionId;
+	public ?int         $moderationId;
+	public ?int         $acceptedBy;
+	public ?int         $rejectedBy;
+	public ?HistoryPart $p;
+	public ?HistoryPart $s;
+	public ?HistoryPart $v;
+	public ?HistoryPart $o;
+	public function deleted() { return $this->pitchId ? $this->p->deleted :
+	                                   (!isset($this->s->deleted) || $this->s->deleted) &&
+	                                   (!isset($this->v->deleted) || $this->v->deleted) &&
+	                                   (!isset($this->o->deleted) || $this->o->deleted); }
 }
 
 class SuspiciousSession {
@@ -434,7 +418,7 @@ class PitchGameConnection
 		}
 	}
 
-	// Because ratePitch gets called in a loop, we persust these statements outside it.
+	// Because ratePitch can get called in a loop, we persist these statements outside it.
 	private ?Inserter $addRating = null;
 	//private ?Updater  $removeRating;
 	private ?Updater  $markPitch;
@@ -503,7 +487,7 @@ class PitchGameConnection
 			$results = [];
 			do
 			{
-				$pitch = new Pitch();
+				$pitch = new RatedPitch();
 				$gotten = $getPitches->getRow($pitch->pitchId, $pitch->subjectId, $pitch->verbId, $pitch->objectId,
 				                              $pitch->subject, $pitch->verb, $pitch->object,
 				                              $pitch->title, $pitch->pitch, $pitch->signature,
@@ -523,6 +507,7 @@ class PitchGameConnection
 	{
 		try
 		{
+			// Something has to be done about this monstrous query.  Would any part of it make a view useful to other queries?
 			$getRequests = new Selector($this->marie, $this->log, '', '
 			    WITH mrq AS ( SELECT m.moderation_id, m.session_id, m.when_submitted,
 			                         p.pitch_id, s.subject_id, v.verb_id, o.object_id,
@@ -607,7 +592,7 @@ class PitchGameConnection
 	{
 		try
 		{
-			$getHistory = new Selector($this->marie, $this->log, 'ii', '
+			$getHistory = new Selector($this->marie, $this->log, 'iii', '
 			    WITH ide AS ( SELECT when_suggested AS when_posted, suggestion_id, subject_id, verb_id, object_id,
 			                         s.word AS subject, v.word AS verb, o.word AS object,
 			                         s.shown_ct AS s_shown_ct, v.shown_ct AS v_shown_ct, o.shown_ct AS o_shown_ct,
@@ -615,35 +600,56 @@ class PitchGameConnection
 			                         s.moderation_status AS s_mod_status, v.moderation_status AS v_mod_status, o.moderation_status AS o_mod_status,
 			                         s.is_deleted AS s_is_deleted, v.is_deleted AS v_is_deleted, o.is_deleted AS o_is_deleted,
 			                         NULL AS pitch_id, NULL AS title, NULL AS pitch, NULL AS signature,
-			                         NULL AS p_shown_ct, NULL AS p_flag_ct, NULL AS p_mod_status, NULL AS p_is_deleted
+			                         NULL AS p_shown_ct, NULL AS p_flag_ct, NULL AS p_mod_status, NULL AS p_is_deleted,
+			                         NULL AS moderation_id, NULL AS accepted_by, NULL AS rejected_by
 			                    FROM suggestions JOIN
 			                         subjects s USING (subject_id) JOIN
 			                         verbs v    USING (verb_id) JOIN
 			                         objects o  USING (object_id)
 			                   WHERE session_id = ? ),
 			         pit AS ( SELECT when_submitted AS when_posted, NULL AS suggestion_id, NULL AS subject_id, NULL AS verb_id, NULL AS object_id,
-			                         NULL AS subject, NULL AS verb, NULL AS object, NULL AS s_shown_ct, NULL AS v_shown_ct, NULL AS i_shown_ct,
+			                         NULL AS subject, NULL AS verb, NULL AS object, NULL AS s_shown_ct, NULL AS v_shown_ct, NULL AS o_shown_ct,
 			                         NULL AS s_flag_ct, NULL AS v_flag_ct, NULL AS o_flag_ct, NULL AS s_mod_status, NULL AS v_mod_status, NULL AS o_mod_status,
 			                         NULL AS s_is_deleted, NULL AS v_us_deleted, NULL AS o_is_deleted,
 			                         pitch_id, title, pitch, signature,
 			                         shown_ct AS p_shown_ct, moderation_flag_ct AS p_flag_ct,
-			                         moderation_status AS p_mod_status, is_deleted AS p_is_deleted
-			                    FROM pitches WHERE session_id = ? )
-			    SELECT * FROM pit UNION SELECT * FROM ide
+			                         moderation_status AS p_mod_status, is_deleted AS p_is_deleted,
+			                         NULL AS moderation_id, NULL AS accepted_by, NULL AS rejected_by
+			                    FROM pitches WHERE session_id = ? ),
+			         mor AS ( SELECT m.when_submitted AS when_posted, NULL AS suggestion_id, s.subject_id, v.verb_id, o.object_id,
+			                         s.word AS subject, v.word AS verb, o.word AS object,
+			                         NULL AS s_shown_ct, NULL AS v_shown_ct, NULL AS o_shown_ct, NULL AS s_flag_ct, NULL AS v_flag_ct, NULL AS o_flag_ct,
+			                         s.moderation_status AS s_mod_status, v.moderation_status AS v_mod_status, o.moderation_status AS o_mod_status,
+			                         s.is_deleted AS s_is_deleted, v.is_deleted AS v_is_deleted, o.is_deleted AS o_is_deleted,
+			                         p.pitch_id, p.title, p.pitch, p.signature,
+			                         NULL AS p_shown_ct, NULL AS p_flag_ct, p.moderation_status AS p_mod_status, p.is_deleted AS p_is_deleted,
+			                         m.moderation_id, m.accepted_by, m.rejected_by
+			                    FROM moderations m LEFT JOIN
+			                         pitches p  ON m.pitch_id   = p.pitch_id   LEFT JOIN
+			                         subjects s ON m.subject_id = s.subject_id LEFT JOIN
+			                         verbs v    ON m.verb_id    = v.verb_id    LEFT JOIN
+			                         objects o  ON m.object_id  = o.object_id
+			                   WHERE m.session_id = ? )
+			    SELECT * FROM pit UNION SELECT * FROM ide UNION SELECT * from mor
                  ORDER BY when_posted DESC');
 
-			$getHistory->select($sessionId, $sessionId);
+			$getHistory->select($sessionId, $sessionId, $sessionId);
 			$results = [];
 			do {
 				$h = new HistoryEntry();
+				$h->p = new HistoryPart();
+				$h->s = new HistoryPart();
+				$h->v = new HistoryPart();
+				$h->o = new HistoryPart();
 				$gotten = $getHistory->getRow($h->whenPosted, $h->suggestionId, $h->subjectId, $h->verbId, $h->objectId,
 				                              $h->subject, $h->verb, $h->object,
-				                              $h->subjectShownCount, $h->verbShownCount, $h->objectShownCount,
-				                              $h->subjectFlagCount, $h->verbFlagCount, $h->objectFlagCount,
-				                              $h->subjectModStatus, $h->verbModStatus, $h->objectModStatus,
-				                              $h->subjectDeleted, $h->verbDeleted, $h->objectDeleted,
+				                              $h->s->shownCount, $h->v->shownCount, $h->o->shownCount,
+				                              $h->s->flagCount, $h->v->flagCount, $h->o->flagCount,
+				                              $h->s->modStatus, $h->v->modStatus, $h->o->modStatus,
+				                              $h->s->deleted, $h->v->deleted, $h->o->deleted,
 				                              $h->pitchId, $h->title, $h->pitch, $h->signature,
-				                              $h->pitchShownCount, $h->pitchFlagCount, $h->pitchModStatus, $h->pitchDeleted);
+				                              $h->p->shownCount, $h->p->flagCount, $h->p->modStatus, $h->p->deleted,
+				                              $h->moderationId, $h->acceptedBy, $h->rejectedBy);
 				if ($gotten)
 					$results[] = $h;
 			} while ($gotten);
@@ -752,7 +758,7 @@ class PitchGameConnection
 				}
 				else
 				{
-					$this->judgeObject->update($delete, $jydgmentO, $modreq->objectId);
+					$this->judgeObject->update($delete, $judgmentO, $modreq->objectId);
 					$this->acceptRequest->update($this->sessionId, $modreq->moderationId);
 				}
 			}
@@ -780,7 +786,7 @@ class PitchGameConnection
 			case 'Evil':
 				$delete = true;
 				break;
-			default: 		// Dubious, Spelling, etc
+			default: 		// Dubious, Misspelled, etc don't set either reject or delete
 				break;
 		}
 	}
@@ -790,8 +796,8 @@ class PitchGameConnection
 		try
 		{
 			$getStats = new Selector($this->marie, $this->log, 'i', '
-			    WITH ses AS ( SELECT session_id, is_test, blocked_by, moderation_status, signature, ip_address, useragent, s.when_created, team_id, use_ct
-			                    FROM sessions s LEFT JOIN teams USING (team_id)
+			    WITH ses AS ( SELECT session_id, is_test, blocked_by, signature, ip_address, useragent, s.when_created
+			                    FROM sessions s      -- later, add team stats
 			                   WHERE session_id = ? ),
 			         sug AS ( SELECT count(suggestion_id) as idea_ct, min(when_suggested) as earliest_idea, max(when_suggested) AS latest_idea,
 			                         sum(s.moderation_flag_ct + v.moderation_flag_ct + o.moderation_flag_ct) as word_flag_ct,
@@ -815,7 +821,7 @@ class PitchGameConnection
 			                         SUM(CASE WHEN rejected_by IS NULL THEN 0 ELSE 1 END) AS rejected_reqs_ct
 			                    FROM ses INNER JOIN 
 			                         moderations USING (session_id) )
-			    SELECT blocked_by, is_test, moderation_status, signature, ip_address, useragent, when_created, team_id, use_ct,
+			    SELECT blocked_by, is_test, signature, ip_address, useragent, when_created,
 			           idea_ct, earliest_idea, latest_idea, word_shown_ct, word_flag_ct, word_deleted_ct, word_moderated_ct,
 			           pitch_ct, earliest_pitch, latest_pitch, pitch_shown_ct, pitch_flag_ct, pitch_deleted_ct, pitch_moderated_ct,
 			           total_reqs_ct, earliest_req, latest_req, accepted_reqs_ct, rejected_reqs_ct
@@ -824,8 +830,8 @@ class PitchGameConnection
 			if ($getStats->select($sessionId))
 			{
 				$result = new SessionSummary();
-				if (!$getStats->getRow($result->blockedBy, $result->isTest, $result->moderationStatus, $result->signature,
-				                       $result->ipAddress, $result->userAgent, $result->whenCreated, $result->teamId, $result->teamUseCount,
+				if (!$getStats->getRow($result->blockedBy, $result->isTest, $result->signature,
+				                       $result->ipAddress, $result->userAgent, $result->whenCreated,
 				                       $result->ideasCount, $result->ideasEarliest, $result->ideasLatest, $result->wordsShownCount,
 				                       $result->wordsFlaggedCount, $result->wordsDeletedCount, $result->wordsModeratedCount,
 				                       $result->pitchesCount, $result->pitchesEarliest, $result->pitchesLatest, $result->pitchesShownCount,
@@ -847,7 +853,7 @@ class PitchGameConnection
 		try
 		{
 			$setBlock = new Updater($this->marie, $this->log, 'ii',
-			    'UPDATE sessions SET blocked_by = ? WHERE session_id = ?');
+			    'UPDATE sessions SET blocked_by = ?, when_last_reviewed = now() WHERE session_id = ?');
 			return $setBlock->update($block ? $this->sessionId : null, $sessionId);
 		}
 		catch (Throwable $ex)

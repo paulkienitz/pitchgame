@@ -1,9 +1,8 @@
 /* TO CHANGE:
 Rename pitches.signature as name? (if it's gonna be required)
 Or have two fields for name and signature -- probably better.
-Drop sessions.team_id, snd sessions.moderation_status while in there.
-Add table participations? as a tweener of sessions and teams, with counter and date(s).
-Add sessions.last_reviewed_date, set by allow keep playing.
+Drop sessions.team_id, add table participations? as a tweener of sessions and teams, with counter and date(s).
+Move flag count, mod status, and deleted to child table?
 */
 
 
@@ -108,9 +107,9 @@ CREATE TABLE pitchgame.sessions (
   sso_provider        VARCHAR(100)  DEFAULT NULL,        -- not implemented, long term
   sso_name            VARCHAR(100)  DEFAULT NULL,        -- not implemented, long term
   is_test             BOOLEAN       NOT NULL DEFAULT 0,  -- not implemented, remove?
-  blocked_by          INT           DEFAULT NULL,
   has_debug_access    BOOLEAN       NOT NULL DEFAULT 0,
-  moderation_status   VARCHAR(10)   DEFAULT NULL,        -- not implemented, remove?
+  blocked_by          INT           DEFAULT NULL,
+  when_last_reviewed  DATETIME      DEFAULT NULL,
 
   PRIMARY KEY            (session_id),
   KEY when_last_used     (when_last_used),
