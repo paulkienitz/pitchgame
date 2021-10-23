@@ -192,6 +192,12 @@ form p:last-child {
 .pitch.dark {
 	background: #EEEEEE;
 }
+.pitch.benev, .pitch.dark.benev {
+	background: #F2FFF2;
+}
+.pitch.malev, .pitch.dark.malev {
+	background: #FFECE0;
+}
 .star {
 	color: #DDAA00;
 }

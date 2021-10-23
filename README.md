@@ -19,10 +19,10 @@ Fourth checkin, prerelease 0.4, added no significant features but checked a lot 
 
 Fifth checkin, prerelease 0.5, adds moderator review of a user's full history, with options to block the user or purge their entire contribution.
 
-Sixth checkin adds improved moderator ability to review user histories.
-I think I'll move to a finer grained checkin schedule now and not use prerelease numbers.
+Sixth through eighth checkins add improved moderator ability to review user histories, plus fixes and refactors.
+I'm moving to a finer grained checkin schedule now and not using prerelease numbers.
 
-Yet to be added are more cosmetics, some helpful admin features, proper login (maybe including SSO), and the team play feature.
+Yet to be added are more cosmetics, proper login (maybe including SSO), and the team play feature.
 
 ----
 

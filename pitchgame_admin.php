@@ -2,10 +2,10 @@
 <?php
 // This page is for moderators and administrators.  Set it to be accessible only with a password.
 
-require 'pitchdata.php';
+require 'pitchdata_admin.php';
 
 $pagestate = 0;			// 0 = outstanding moderation requests, 1 = user summary, 2 = user history, 3 = just blocked, 4 = confirm purge
-$con = new PitchGameConnection();		// defined in pitchdata.php
+$con = new PitchGameAdminConnection();		// defined in pitchdata_admin.php
 
 $validationFailed = false;
 $databaseFailed = !$con->isReady();
@@ -88,6 +88,11 @@ function attribution(int $id, string $when, int $sessionId, int $flagCount)
 {
 	return "$id, submitted $when by " . slink($sessionId) .
 	       ($flagCount > 1 ? ", has $flagCount flags" : '');
+}
+
+function ject(?int $rejectedBy)
+{
+	return !$rejectedBy ? '' : " — <span class=warn>REJECTED by user $rejectedBy</span>";
 }
 
 function judgment($modStatus, $deleted, $prefix, $postfix)
@@ -507,11 +512,11 @@ if (!$databaseFailed)
 		<input type=hidden name=daysold value='<?=$suspiciousUserDays?>' />
 		<input type=hidden name=history value='<?=enc(serialize($history))?>' />
 		<?php foreach ($history as $h) { ?>
-		<blockquote class="pitch <?=$h->deleted() ? ' dark' : ''?>">
+		<blockquote class="pitch <?=$h->deleted() ? ' dark' : ''?><?=$h->rejectedBy ? ' malev' : ($h->acceptedBy ? ' benev' : '')?>">
 			<?php if ($h->pitchId) { ?>
 				<?php if ($h->moderationId) { ?>
 				<div class=lowergap>
-					Flagged this pitch <?=$h->whenPosted?><?=judgment($h->p->modStatus, $h->p->deleted, ' (', ')')?>
+					Flagged this pitch <?=$h->whenPosted . judgment($h->p->modStatus, $h->p->deleted, ' (', ')') . ject($h->rejectedBy)?>
 				</div>
 				<?php } else { ?>
 				<div class=lowergap>
@@ -528,7 +533,7 @@ if (!$databaseFailed)
 				<?php } ?>
 			<?php } else { ?>
 				<?php if ($h->moderationId) { ?>
-				<div>Flagged bad word <?=$h->whenPosted?></div>
+				<div>Flagged bad word <?=$h->whenPosted . ject($h->rejectedBy)?></div>
 				<?php } else { ?>
 				<div>Submitted <?=$h->whenPosted?></div>
 				<?php } ?>
