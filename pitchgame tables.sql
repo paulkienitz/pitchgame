@@ -1,8 +1,6 @@
-/* TO CHANGE:
-Rename pitches.signature as name? (if it's gonna be required)
-Or have two fields for name and signature -- probably better.
-Drop sessions.team_id, add table participations? as a tweener of sessions and teams, with counter and date(s).
-Move flag count, mod status, and deleted to child table?
+/* PENDING CHANGES:
+Would it simplify anything to move flag count, mod status, and deleted to child table?
+Date fields for moderation actions?
 */
 
 
@@ -10,10 +8,8 @@ Move flag count, mod status, and deleted to child table?
 
 CREATE DATABASE pitchgame;
 ALTER DATABASE pitchgame DEFAULT CHARACTER SET utf8mb4 DEFAULT COLLATE utf8mb4_unicode_520_ci;
+-- Manually set the password and put it in php.ini
 
--- Create base table for common fields of subject, verb, object, and pitch?
--- shown_ct, last_shown, moderation_flag_ct, moderation_status, is_deleted...
--- This would require renumbering all four tables, ouch... I think that ship has sailed.
 
 CREATE TABLE pitchgame.subjects (
   subject_id          INT           NOT NULL AUTO_INCREMENT,
@@ -23,6 +19,7 @@ CREATE TABLE pitchgame.subjects (
   moderation_flag_ct  INT           NOT NULL DEFAULT 0,
   moderation_status   VARCHAR(10)   DEFAULT NULL,
   is_deleted          BOOLEAN       NOT NULL DEFAULT 0,
+  is_private          BOOLEAN       NOT NULL DEFAULT 0,
 
   PRIMARY KEY            (subject_id),
   UNIQUE KEY word        (word),
@@ -37,6 +34,7 @@ CREATE TABLE pitchgame.verbs (
   moderation_flag_ct  INT           NOT NULL DEFAULT 0,
   moderation_status   VARCHAR(10)   DEFAULT NULL,
   is_deleted          BOOLEAN       NOT NULL DEFAULT 0,
+  is_private          BOOLEAN       NOT NULL DEFAULT 0,
 
   PRIMARY KEY            (verb_id),
   UNIQUE KEY word        (word),
@@ -51,6 +49,7 @@ CREATE TABLE pitchgame.objects (
   moderation_flag_ct  INT           NOT NULL DEFAULT 0,
   moderation_status   VARCHAR(10)   DEFAULT NULL,
   is_deleted          BOOLEAN       NOT NULL DEFAULT 0,
+  is_private          BOOLEAN       NOT NULL DEFAULT 0,
 
   PRIMARY KEY            (object_id),
   UNIQUE KEY word        (word),
@@ -72,6 +71,7 @@ CREATE TABLE pitchgame.pitches (
   moderation_flag_ct  INT           NOT NULL DEFAULT 0,
   moderation_status   VARCHAR(10)   DEFAULT NULL,
   is_deleted          BOOLEAN       NOT NULL DEFAULT 0,
+  is_private          BOOLEAN       NOT NULL DEFAULT 0,
 
   PRIMARY KEY            (pitch_id),
   UNIQUE KEY no_dupes    (session_id, subject_id, verb_id, object_id)
@@ -91,6 +91,7 @@ CREATE TABLE pitchgame.teams (
   when_created        DATETIME      NOT NULL DEFAULT current_timestamp(),
   token               VARCHAR(40)   NOT NULL,     -- also add a secret token? or just hash the public one?
   use_ct              INT           NOT NULL DEFAULT 0,
+  is_private          BOOLEAN       NOT NULL DEFAULT 0,
 
   PRIMARY KEY            (team_id)
 );
@@ -99,14 +100,15 @@ CREATE TABLE pitchgame.sessions (
   session_id          INT           NOT NULL AUTO_INCREMENT,
   when_created        DATETIME      NOT NULL DEFAULT current_timestamp(),
   when_last_used      DATETIME      NOT NULL DEFAULT current_timestamp(),
+  nickname            VARCHAR(50)   DEFAULT NULL COMMENT 'may be set at first login; secondary default for pitches.signature',
   signature           VARCHAR(100)  DEFAULT NULL COMMENT 'acts as default for pitches.signature',
-  team_id             INT           DEFAULT NULL,        -- GAAAH, needs a tweener table
   ip_address          VARCHAR(40)   DEFAULT NULL COMMENT 'for spam moderation only',
   useragent           VARCHAR(1000) DEFAULT NULL COMMENT 'for spam moderation only',
   cookie_token        VARCHAR(40)   DEFAULT NULL,
+  passed_captcha      BOOLEAN       NOT NULL DEFAULT 0,
   sso_provider        VARCHAR(100)  DEFAULT NULL,        -- not implemented, long term
   sso_name            VARCHAR(100)  DEFAULT NULL,        -- not implemented, long term
-  is_test             BOOLEAN       NOT NULL DEFAULT 0,  -- not implemented, remove?
+  is_test             BOOLEAN       NOT NULL DEFAULT 0,  -- remove?
   has_debug_access    BOOLEAN       NOT NULL DEFAULT 0,
   blocked_by          INT           DEFAULT NULL,
   when_last_reviewed  DATETIME      DEFAULT NULL,
@@ -114,9 +116,19 @@ CREATE TABLE pitchgame.sessions (
   PRIMARY KEY            (session_id),
   KEY when_last_used     (when_last_used),
   KEY cookie_token       (cookie_token),
-  KEY session_team       (team_id),
-  CONSTRAINT session_team  FOREIGN KEY (team_id)    REFERENCES teams (team_id),
   CONSTRAINT session_block FOREIGN KEY (blocked_by) REFERENCES sessions (session_id)
+);
+
+CREATE TABLE pitchgame.participations (
+  session_id          INT           NOT NULL,
+  team_id             INT           NOT NULL,
+  use_ct              INT           NOT NULL DEFAULT 0,
+  last_used           DATETIME      NOT NULL DEFAULT current_timestamp(),
+
+  KEY part_session    (session_id),
+  KEY part_team       (team_id),
+  CONSTRAINT part_session FOREIGN KEY (session_id) REFERENCES sessions (session_id),
+  CONSTRAINT part_team    FOREIGN KEY (team_id)    REFERENCES teams    (team_id)
 );
 
 CREATE TABLE pitchgame.ratings (
@@ -154,7 +166,7 @@ CREATE TABLE pitchgame.suggestions (
   CONSTRAINT suggestion_object         FOREIGN KEY (object_id)   REFERENCES objects (object_id)
 );
 
-CREATE TABLE moderations (
+CREATE TABLE pitchgame.moderations (
   moderation_id       INT           NOT NULL AUTO_INCREMENT,
   session_id          INT           NOT NULL COMMENT 'track people''s moderation requests to detect abuse',
   subject_id          INT           DEFAULT NULL,

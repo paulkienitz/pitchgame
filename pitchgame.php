@@ -3,13 +3,16 @@
 // This page contains all views for the gameplay loop seen by regular players.
 
 // TODO: make everything use more color, maybe some fancy fonts
-//       team play!  need new session handling, challenge, and review queries...  add privacy option
-//       team status display with push updates... chat window?  scheduled future invite?
+//       rejected moderation appeals should qualify user for history listory
+//       team play!  need new session handling, challenge, and review queries... privacy option
+//       delayed team play needs email and/or text notification
+//       real-time team play needs status display with push updates... chat window?  scheduled future invite?
 //       support sso identity, or simple password if that's too hard?
 //       history of own pitches? (incentive for login)
-//       distinguish mobile browsers
+//       session history: add field for last reviewed by, null for new records
 //
-// BUGS: "with pits" query for reviews or faves are intermittently slow... argh it's not the query itself
+// BUGS: "with pits" query for reviews or faves are intermittently slow... argh it's not the query itself?
+//       Pronounce Judgment button can misdirect to last seen history page
 //
 // TEST: 
 //
@@ -23,6 +26,7 @@
 //       security level set in .ini, from anonymous to named to recaptchad to sso identified to nobody new?
 
 require 'pitchdata.php';
+require 'common.php';
 
 $pagestate = 0;		// 0 = prompt for words, 1 = prompt for pitch, 2 = rate pitches, 3 = old faves, 4/5 = thanks and restart, 6 = mark bad words
 
@@ -44,46 +48,34 @@ $signature = '';
 $challenge = null;				// will contain three words and their IDs, structure defined in pitchdata.php
 $pitchesToReview = [];			// array of Pitch structures defined in pitchdata.php
 
-function myIP()
-{
-	return $_SERVER['HTTP_CLIENT_IP'] ?? $_SERVER['HTTP_X_FORWARDED_FOR'] ?? $_SERVER['REMOTE_ADDR'];
-}
-
-function enc(?string $str)
-{
-	return htmlspecialchars($str, ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5);
-}
-
-function despace(string $str)
-{
-	return trim(preg_replace('/\s+/', ' ', $str));
-}
-
-function englishNumber(int $n)
-{
-	$words = explode(' ', 'zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty');
-	return array_key_exists($n, $words) ? $words[$n] : (string) $n;
-}
-
 
 // ---- process get/post args and do DB operations
 
 if (!$databaseFailed)
 {
-	if (!isset($_COOKIE['pitchgame']) || !$con->getSessionByToken($_COOKIE['pitchgame'], myiP()))
+	$databaseFailed = !connectToSession($con);
+	if (isset($_GET['team']))
 	{
-		$token = $con->makeSession(myIP(), $_SERVER['HTTP_USER_AGENT']);
-		if ($token)
-			setcookie('pitchgame', $token, time() + 366*86400);  // a year
-		else
-			$databaseFailed = true;
+		$con->joinTeam($_GET['team']);
 	}
 }
 else
 	$con->lastError = "Database connection failed - $con->lastError";
 
-if (isset($_POST['formtype']) && !$databaseFailed)		// extract form values, validate, and update
+if (isset($_POST['g-recaptcha-response']))
+{
+	$captchaCheck = ['secret'   => PitchGameConnection::CAPTCHA_SECRET,
+	                 'remoteip' => myIP(),
+	                 'response' => $_POST['g-recaptcha-response']];
+	$rawResponse = doPost('https://www.google.com/recaptcha/api/siteverify', $captchaCheck);
+	$captchaResponse = json_decode($rawResponse, false, 3);
+	if (isset($captchaResponse->success) && $captchaResponse->success)
+		$con->captchaPass();
+	else
+		$con->captchaFail($rawResponse, $_POST['g-recaptcha-response'], curl_getinfo($curly, CURLINFO_RESPONSE_CODE));
+}
 
+if (isset($_POST['formtype']) && !$databaseFailed)		// extract form values, validate, and update
 {
 	if ($_POST['formtype'] == 'initialwords')			// pagestate 0, 4, or 5 form submitted
 	{
@@ -92,7 +84,7 @@ if (isset($_POST['formtype']) && !$databaseFailed)		// extract form values, vali
 		$initialVerb    = despace($_POST['verb']);
 		$initialObject  = despace($_POST['object']);
 		$validationFailed = !$initialSubject || !$initialVerb || !$initialObject;
-		if (!$validationFailed)
+		if (!$validationFailed && !$con->needsCaptcha)
 		{
 			if ($con->addWords($initialSubject, $initialVerb, $initialObject))
 				$challenge = $con->getChallenge($seed);
@@ -102,7 +94,7 @@ if (isset($_POST['formtype']) && !$databaseFailed)		// extract form values, vali
 			$challengeSummary = despace("$challenge->subject $challenge->verb $challenge->object");
 			$signature = trim($con->defaultSignature);
 		}
-		$pagestate = $validationFailed ? 0 : 1;
+		$pagestate = $validationFailed || $con->needsCaptcha ? 0 : 1;
 	}
 	else if ($_POST['formtype'] == 'pitch')				// pagestate 1 form submitted
 	{
@@ -220,6 +212,9 @@ if (isset($_POST['formtype']) && !$databaseFailed)		// extract form values, vali
 	<title>The Movie Pitch Game!</title>
 	<link rel="stylesheet" href="pitchgame.css">
 	<script type="text/javascript" src="pitchgame.js"></script>
+	<?php if ($con->needsCaptcha) { ?>
+	<script src="https://www.google.com/recaptcha/api.js" async defer></script>
+	<?php } ?>
 </head>
 
 
@@ -298,9 +293,20 @@ if (isset($_POST['formtype']) && !$databaseFailed)		// extract form values, vali
 			All three values are required if you want to play!
 		</div>
 	<?php } ?>
+	<?php if ($con->needsCaptcha) { ?>
+		<p class="g-recaptcha" data-tabindex=4 data-callback="captchaSatisfied"
+		   data-sitekey="<?=PitchGameConnection::CAPTCHA_SITE_KEY?>"></p>
+		<?php if (isset($_POST['g-recaptcha-response'])) { ?>
+		<div class=validation>We’re sorry, that captcha response wasn’t valid.</div>
+		<?php } ?>
+		<p>
+			<button tabindex=5 disabled id=submitter>Submit Words so I can Make My Pitch</button>
+		</p>
+	<?php } else { ?>
 		<p>
 			<button tabindex=4>Submit Words so I can Make My Pitch</button>
 		</p>
+	<?php } ?>
 	</form>
 
 <?php } else if ($pagestate == 1) { ?>
@@ -373,7 +379,7 @@ if (isset($_POST['formtype']) && !$databaseFailed)		// extract form values, vali
 			</div>
 			<h3 class=favetitle><?=enc($pitcher->title)?></h3>
 			<p style='white-space: pre-wrap'><?=enc($pitcher->pitch)?></p>
-			<?php if ($pitcher->signature) echo "<div>&mdash; $pitcher->signature</div>\n"; ?>
+			<?php if ($pitcher->signature) echo '<div>&mdash; ' . enc($pitcher->signature) . "</div>\n"; ?>
 			<div class=stars>
 				<input type=hidden id='newrating_<?=$pitcher->pitchId?>' name='newrating_<?=$pitcher->pitchId?>' value=''></input>
 				Your rating: 
@@ -406,8 +412,7 @@ if (isset($_POST['formtype']) && !$databaseFailed)		// extract form values, vali
 	<?php foreach ($oldFavoritePitches as $pitcher) { ?>
 		<blockquote class=pitch>
 			<div>
-				<i>from the idea “<?=enc($pitcher->subject)?>
-			    <?=enc($pitcher->verb)?> <?=enc($pitcher->object)?>”:</i>
+				<i>from the idea “<?=enc($pitcher->subject)?> <?=enc($pitcher->verb)?> <?=enc($pitcher->object)?>”:</i>
 			</div>
 			<div class=uppergap>
 				<h3 class=favetitle>
@@ -419,7 +424,7 @@ if (isset($_POST['formtype']) && !$databaseFailed)		// extract form values, vali
 		<?php } ?>
 			</div>
 			<p class=favepitch><?=enc($pitcher->pitch)?></p>
-			<?php if ($pitcher->signature) echo "<div>&mdash; $pitcher->signature</div>\n"; ?>
+			<?php if ($pitcher->signature) echo '<div>&mdash; ' . enc($pitcher->signature) . "</div>\n"; ?>
 		</blockquote>
 	<?php } ?>
 
@@ -440,19 +445,21 @@ if (isset($_POST['formtype']) && !$databaseFailed)		// extract form values, vali
 
 	You should mark a word invalid if it can’t be used as the correct part
 	of speech (for instance “of”, “actually”, or “tall”), if it’s gibberish
-	(“Ggggggg”, “asdfasdf”), if it’s spam (“http://lose-weight-fast.zz.xx”),
-	if it’s not English and wouldn’t be recognized by English speakers
-	(“Mantergeistmännlichkeit”, “新代载人飞船”), or if it’s hate propaganda
-	or promotes crime.
+	(“Ggggggg”, “asdfasdf”), if it’s spam (“lose-weight-fast.zzxx.cwm”,
+	“buy DogeCoin now!”), if it’s an attempted hack
+	(“&lt;script src='http://unknown.site/xxx.js'&gt;&lt;script&gt;”,
+	“Football'; DROP TABLE pitch_verb;”), if it’s not English and wouldn’t be
+	recognized by English speakers (“Mantergeistmännlichkeit”, “新代载人飞船”), or
+	if it’s hate propaganda or promotes crime.
 
 	</p><p>
 
 	You should <i>not</i> mark words invalid because the sentence it makes is
 	grammatically awkward due to mismatched plurals or tenses (“ichthyosaurs flies
-	over pessimism”), because it has adult language (“Ben Franklin shits on your shoe”),
-	or because you would really like an easier idea to pitch.&ensp;The inconvenience of
-	trying to make creative sense of a jumbled idea is a core part of the
-	game!&ensp;Abuse of this reporting feature will be monitored.
+	over pessimism”), because it has adult language (“Ben Franklin shits on your
+	shoe”), or because you would really like an easier idea to pitch.&ensp;The
+	inconvenience of trying to make creative sense of a jumbled idea is a core part
+	of the game!&ensp;Abuse of this reporting feature will be monitored.
 	
 	</p><p>
 
@@ -486,7 +493,7 @@ if (isset($_POST['formtype']) && !$databaseFailed)		// extract form values, vali
 	<a href='' id=randomize class=meta>randomize</a>
 </p>
 <?php }
-      if ($con->hasDebugAccess) { ?>
+      if ($con->hasDebugAccess || true /**** XXX TEMPORARY */) { ?>
 <p>
 	<a href='' id=showLog class=meta>show DB log</a>
 </p>

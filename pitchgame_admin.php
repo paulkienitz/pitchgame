@@ -3,6 +3,7 @@
 // This page is for moderators and administrators.  Set it to be accessible only with a password.
 
 require 'pitchdata_admin.php';
+require 'common.php';
 
 $pagestate = 0;			// 0 = outstanding moderation requests, 1 = user summary, 2 = user history, 3 = just blocked, 4 = confirm purge
 $con = new PitchGameAdminConnection();		// defined in pitchdata_admin.php
@@ -20,22 +21,6 @@ $moderationRequests = null;
 $userSummary = null;
 $suspiciousSessions = null;
 $history = null;
-
-function myIP()
-{
-	return $_SERVER['HTTP_CLIENT_IP'] ?? $_SERVER['HTTP_X_FORWARDED_FOR'] ?? $_SERVER['REMOTE_ADDR'];
-}
-
-function enc(?string $str)
-{
-	return htmlspecialchars($str, ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5);
-}
-
-function englishNumber(int $n)
-{
-	$words = explode(' ', 'zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty');
-	return array_key_exists($n, $words) ? $words[$n] : (string) $n;
-}
 
 
 function describeBrowser(string $userAgent)
@@ -55,70 +40,81 @@ function describeBrowser(string $userAgent)
 		$browser = 'Chrome';
 	else
 		$browser = 'unrecognized';
+	if ($browser != 'unrecognized' && preg_match('/Android|Kindle|iPad|iPod|iPhone|Mobile|Tablet/', $userAgent))
+		$browser .= ' Mobile';
 	return '<span class=browse title="' . enc($userAgent) . '">' . $browser . '</span>';
 }
 
-function warn(?int $number, string $description)
+function warn(?int $number, string $description, ?string $descriptionSingular = null)
 {
 	if ($number <= 0)
-		return "$number $description";
+		return '0 ' . enc($description);
+	else if ($number == 1)
+	{
+		$descriptionSingular ??= $description;
+		return '<span class=warn>1 ' . enc($descriptionSingular) . '</span>';
+	}
 	else
-		return "<span class=warn>$number $description</span>";
+		return "<span class=warn>$number " . enc($description) . '</span>';
 }
 
 function countAndRange(int $count, ?string $earliest, ?string $latest)
 {
-	if ($count > 1)
-		return "$count&ensp;from&ensp;$earliest&ensp;to&ensp;$latest";
+	if ($count > 1 && $earliest != $latest)
+		return "$count&ensp;from&ensp;" . enc($earliest) . '&ensp;to&ensp;' . enc($latest);
 	else
-		return $count == 1 ? "$count&ensp;on&ensp;$earliest" : 'none';
+		return $count > 0 ? "$count&ensp;at&ensp;" . enc($earliest) : 'none';
 }
 
 function showFlagDelMod(int $shown, int $flagged, int $deleted, int $moderated)
 {
-	return $shown . ' views, ' . warn($flagged, 'flags') . ', ' . warn($deleted, 'deleted') . ', ' . warn($moderated, 'moderated');
+	return $shown . ($shown == 1 ? ' view, ' : ' views, ') . warn($flagged, 'flags', 'flag') . ', ' .
+	       warn($deleted, 'deleted') . ', ' . warn($moderated, 'moderated');
 }
 
 function slink(int $sessionId)
 {
+	// XXX include recognizable name?
 	return "<a href='' id='session_$sessionId' class=slinky>user $sessionId</a>";
 }
 
 function attribution(int $id, string $when, int $sessionId, int $flagCount)
 {
-	return "$id, submitted $when by " . slink($sessionId) .
+	return "$id, submitted " . enc($when) . ' by ' . slink($sessionId) .
 	       ($flagCount > 1 ? ", has $flagCount flags" : '');
 }
 
-function ject(?int $rejectedBy)
+function ject(?int $rejectedBy, ?int $acceptedBy)
 {
-	return !$rejectedBy ? '' : " — <span class=warn>REJECTED by user $rejectedBy</span>";
+	return !$rejectedBy ? '' : (!$acceptedBy ? " — <span class=warn>REJECTED by user $rejectedBy</span>" :
+	       " — <span class=warn>PARTIALLY REJECTED by user $rejectedBy</span>");
 }
 
-function judgment($modStatus, $deleted, $prefix, $postfix)
+function judgment(?string $modStatus, ?bool $deleted, string $prefix, string $postfix)
 {
 	return !$modStatus && !$deleted ? '' :
 	       "$prefix<span class=" . ($modStatus == 'Valid' ? 'antiwarn' : 'warn') . '>' .
-	       ($deleted ? 'DELETED as ' . $modStatus : 'judged ' . $modStatus) . "</span>$postfix\n";
+	       ($deleted ? 'DELETED as ' . enc($modStatus) : 'judged ' . enc($modStatus)) . "</span>$postfix\n";
 }
 
 function histatus(HistoryPart $hp)
 {
 	return !is_numeric($hp->shownCount) ? judgment($hp->modStatus, $hp->deleted, '&ensp;(', ')') :
-	       " — $hp->shownCount views, " . warn($hp->flagCount, 'flags') . judgment($hp->modStatus, $hp->deleted, ' — ', '');
+	       " — $hp->shownCount " . ($hp->shownCount == 1 ? 'view, ' : 'views, ') .
+	       warn($hp->flagCount, 'flags', 'flag') . judgment($hp->modStatus, $hp->deleted, ' — ', '');
 }
 
 function histword(string $part, ?string $word, HistoryPart $hp)
 {
 	return !$word ? '' :
-	       "<br/>$part <span class='lit" . ($hp->deleted ? ' deleted' : '') . "'>“" . enc($word) . '”</span>' . histatus($hp);
+	       '<br/>' . enc($part) . ' <span class="lit' . ($hp->deleted ? ' deleted' : '') . '">“' . enc($word) . '”</span>' . histatus($hp);
 }
 
 function askWord(string $kind, int $id, string $when, int $sessionId, int $flagCount, int $dupes, string $word, int $moderationId)
 {
 	$rat = "type=radio name='modreq_$kind[0]_$moderationId'";
 	$partOfSpeech = $kind == 'Verb' ? 'verb' : 'noun';
-	return "<div class=uppergap>— $kind " . attribution($id, $when, $sessionId, $flagCount) .
+	return '<div class=uppergap>— ' . enc($kind) . attribution($id, $when, $sessionId, $flagCount) .
 	       ($dupes > 1 ? ", $dupes dupes" : '') .
 	       "</div>\n<div class=qq>Is <span class=lit>“" . enc($word) .
 	       "”</span> a valid $partOfSpeech?</div>\n<div>" .
@@ -128,6 +124,7 @@ function askWord(string $kind, int $id, string $when, int $sessionId, int $flagC
 	       "<label><input $rat value='Non-$partOfSpeech' /> Not a $partOfSpeech, DELETE</label>" .
 	       "<label><input $rat value='Gibberish' /> Gibberish, DELETE</label>" .
 	       "<label><input $rat value='Spam' /> Spam, DELETE</label>" .
+	       "<label><input $rat value='Hacking' /> Hacking, DELETE</label>" .
 	       "<label><input $rat value='Evil' /> Hate or Crime, DELETE</label>" .
 	       "<label><input $rat value='' checked /> (no answer)</label></div>\n";
 }
@@ -136,19 +133,9 @@ function askWord(string $kind, int $id, string $when, int $sessionId, int $flagC
 // ---- process get/post args and do DB operations
 
 if (!$databaseFailed)
-{
-	if (!isset($_COOKIE['pitchgame']) || !$con->getSessionByToken($_COOKIE['pitchgame'], myIP()))
-	{
-		$token = $con->makeSession(myIP(), $_SERVER['HTTP_USER_AGENT']);
-		if ($token)
-			setcookie('pitchgame', $token, time() + 366*86400);
-		else
-			$databaseFailed = true;
-	}
-	// else update ip_address and when_last_used?
-}
+	$databaseFailed = !connectToSession($con);
 else
-	$con->lastError = "Database connection failed — $con->lastError";
+	$con->lastError = "Database connection failed - $con->lastError";
 
 if (isset($_GET['sessionId']) && !$databaseFailed)
 {
@@ -354,7 +341,7 @@ if (!$databaseFailed)
 	<?php foreach ($moderationRequests as $modreq) { ?>
 		<div class=fields>
 			<div>
-				#<?=$modreq->moderationId?> »&ensp;At <?=$modreq->whenRequested?>,
+				#<?=$modreq->moderationId?> »&ensp;At <?=enc($modreq->whenRequested)?>,
 				<?=slink($modreq->requestorSessionId)?>
 				<!--?=$modreq->flagDupes > 2 ? '(and ' . englishNumber($modreq->flagDupes - 1) . ' others)' :
 				  ($modreq->flagDupes > 1 ? '(and one other)' : '')?-->
@@ -378,6 +365,7 @@ if (!$databaseFailed)
 			<label><input type=radio name='modreq_P_<?=$modreq->moderationId?>' value='Dubious' /> Dubious</label>
 			<label><input type=radio name='modreq_P_<?=$modreq->moderationId?>' value='Gibberish' /> Gibberish, DELETE</label>
 			<label><input type=radio name='modreq_P_<?=$modreq->moderationId?>' value='Spam' /> Spam, DELETE</label>
+			<label><input type=radio name='modreq_P_<?=$modreq->moderationId?>' value='Hacking' /> Hacking, DELETE</label>
 			<label><input type=radio name='modreq_P_<?=$modreq->moderationId?>' value='Evil' /> Hate or Crime, DELETE</label>
 			<label><input type=radio name='modreq_P_<?=$modreq->moderationId?>' value='' checked /> (no answer)</label>
 			</div>
@@ -414,8 +402,10 @@ if (!$databaseFailed)
 	<?php } ?>
 
 	<p>So instead, here is a list of active users who have had one or more of
-	their word or pitch submissions deleted.&ensp;You can review their histories
-	and see if they need further intervention.</p>
+	their word or pitch submissions deleted, or who’ve flagged someone else’s
+	input for reasons found invalid, since the last time someone reviewed them
+	here.&ensp;You can review their histories and see if they have committed
+	further offenses.</p>
 
 	<form method="POST" class="meta direct">
 		<input type=hidden name=formtype id=formtype value='usualsuspects' />
@@ -432,7 +422,7 @@ if (!$databaseFailed)
 
 		<?php foreach ($suspiciousSessions as $sus) { ?>
 			<p>
-				<?=$sus->deletions?> deletions, active <?=$sus->whenLastUsed?>: <?=slink($sus->sessionId)?>
+				<?=$sus->deletions?> deletions, active <?=enc($sus->whenLastUsed)?>: <?=slink($sus->sessionId)?>
 				<?=$sus->signature ? '— “' . enc($sus->signature) . '”' : '' ?>
 			</p>
 		<?php } ?>
@@ -441,7 +431,7 @@ if (!$databaseFailed)
 <?php } else if (($pagestate == 1 || $pagestate == 2) && !$userSummary) { ?>
 
 	<div id=userSummary>
-		<p>User <?=enc($_GET['sessionId'])?> not found.</p>
+		<p>User <?=enc($_GET['sessionId'])?> not found.</p>   <!-- XXX add a hash to prevent enumeration? -->
 	</div>
 
 <?php } else if ($pagestate == 1 || $pagestate == 2) { ?>
@@ -458,7 +448,10 @@ if (!$databaseFailed)
 			    <td>#<?=$sessionId?> is <?=$userSummary->blockedBy ? "<span class=warn>BLOCKED by $userSummary->blockedBy</span>" : ($userSummary->isTest ? 'TESTER' : 'active')?>
 			        — <?=$userSummary->signature ? 'signature is “<span class=lit>' . enc($userSummary->signature) . '”</span>' : 'no default signature'?></td>
 			</tr>
-			<tr><td>Connection:</td>
+			<tr><td>Dates active:</td>
+			    <td>created&ensp;<?=enc($userSummary->whenCreated)?>,&ensp;last used&ensp;<?=enc($userSummary->whenLastUsed)?></td>
+			</tr>
+			<tr><td>Last connection:</td>
 			    <td>browser <?=describeBrowser($userSummary->userAgent)?>, IP address <?=enc($userSummary->ipAddress)?></td>
 			</tr>
 			<tr><td>Ideas submitted:</td>
@@ -482,7 +475,12 @@ if (!$databaseFailed)
 			</tr>
 	<?php if ($userSummary->modRequestsCount) { ?>
 			<tr><td>Moderation outcomes:</td>
-			    <td><?=$userSummary->modRequestsAcceptedCount?> accepted, <?=$userSummary->modRequestsRejectedCount?> rejected.</td>
+			    <td><?=$userSummary->modRequestsAcceptedCount?> accepted, <?=$userSummary->modRequestsRejectedCount?> rejected</td>
+			</tr>
+	<?php } ?>
+	<?php if ($userSummary->whenLastReviewed) { ?>
+			<tr><td>History reviewed:</td>
+			    <td>checked by moderator <?=enc($userSummary->whenLastReviewed)?></td>
 			</tr>
 	<?php } ?>
 		</table>
@@ -490,7 +488,8 @@ if (!$databaseFailed)
 		<p>
 			<a href='' id=historicize>View full submission history</a>
 		</p>
-	<?php } ?>
+	<?php }
+	      $watermark = $userSummary->whenLastReviewedUnixTime; ?>
 	</div>
 
 	<?php if ($pagestate == 2) { ?>
@@ -512,15 +511,18 @@ if (!$databaseFailed)
 		<input type=hidden name=daysold value='<?=$suspiciousUserDays?>' />
 		<input type=hidden name=history value='<?=enc(serialize($history))?>' />
 		<?php foreach ($history as $h) { ?>
+			<?php if ($watermark && $watermark > $h->whenPostedUnixTime) { ?>
+			<p>— Reviewed by moderator <?=enc($userSummary->whenLastReviewed)?> —</p>
+			<?php $watermark = null; } ?>
 		<blockquote class="pitch <?=$h->deleted() ? ' dark' : ''?><?=$h->rejectedBy ? ' malev' : ($h->acceptedBy ? ' benev' : '')?>">
 			<?php if ($h->pitchId) { ?>
 				<?php if ($h->moderationId) { ?>
 				<div class=lowergap>
-					Flagged this pitch <?=$h->whenPosted . judgment($h->p->modStatus, $h->p->deleted, ' (', ')') . ject($h->rejectedBy)?>
+					Flagged this pitch <?=$h->whenPosted . judgment($h->p->modStatus, $h->p->deleted, ' (', ')') . ject($h->rejectedBy, $h->acceptedBy)?>
 				</div>
 				<?php } else { ?>
 				<div class=lowergap>
-					Written <?=$h->whenPosted?><?=histatus($h->p)?>
+					Written <?=enc($h->whenPosted)?><?=histatus($h->p)?>
 				</div>
 				<?php } ?>
 				<div <?=$h->p->deleted ? 'class=deleted' : ''?>>
@@ -533,7 +535,7 @@ if (!$databaseFailed)
 				<?php } ?>
 			<?php } else { ?>
 				<?php if ($h->moderationId) { ?>
-				<div>Flagged bad word <?=$h->whenPosted . ject($h->rejectedBy)?></div>
+				<div>Flagged bad word <?=$h->whenPosted . ject($h->rejectedBy, $h->acceptedBy)?></div>
 				<?php } else { ?>
 				<div>Submitted <?=$h->whenPosted?></div>
 				<?php } ?>

@@ -40,6 +40,9 @@ class SessionSummary
 	public ?string $userAgent;
 	public ?string $signature;
 	public ?string $whenCreated;
+	public ?string $whenLastUsed;
+	public ?string $whenLastReviewed;
+	public ?float  $whenLastReviewedUnixTime;
 	public ?int    $ideasCount;
 	public ?string $ideasEarliest;
 	public ?string $ideasLatest;
@@ -73,6 +76,7 @@ class HistoryPart
 class HistoryEntry extends Pitch
 {
 	public ?string      $whenPosted;
+	public ?float       $whenPostedUnixTime;
 	public ?int         $suggestionId;
 	public ?int         $moderationId;
 	public ?int         $acceptedBy;
@@ -98,7 +102,7 @@ class SuspiciousSession {
 class PitchGameAdminConnection extends PitchGameConnection
 {
 
-	public function getRecentModerationRequests()
+	public function getRecentModerationRequests(): ?array
 	{
 		try
 		{
@@ -180,16 +184,76 @@ class PitchGameAdminConnection extends PitchGameConnection
 		catch (Throwable $ex)
 		{
 			$this->saveError($ex);
+			return null;    // PHP docs claim no return means null is returned, but this is not true enough
 		}
 	}
 
-	public function getSessionHistory($sessionId)
+	public function sessionStats(int $sessionId): ?SessionSummary
+	{
+		try
+		{
+			$getStats = new Selector($this->marie, $this->log, 'i', '
+			    WITH ses AS ( SELECT session_id, is_test, blocked_by, signature, ip_address, useragent, when_created, when_last_used,
+			                         when_last_reviewed, cast(unix_timestamp(when_last_reviewed) AS double) AS when_last_reviewed_unix
+			                    FROM sessions s      -- later, add team stats
+			                   WHERE session_id = ? ),
+			         sug AS ( SELECT count(suggestion_id) as idea_ct, min(when_suggested) as earliest_idea, max(when_suggested) AS latest_idea,
+			                         sum(s.moderation_flag_ct + v.moderation_flag_ct + o.moderation_flag_ct) as word_flag_ct,
+			                         sum(s.is_deleted + v.is_deleted + o.is_deleted) as word_deleted_ct,
+			                         sum(s.shown_ct + v.shown_ct + o.shown_ct) AS word_shown_ct,
+			                         sum(CASE WHEN ifnull(s.moderation_status, \'Valid\') = \'Valid\' OR s.is_deleted = true THEN 0 ELSE 1 END +
+			                             CASE WHEN ifnull(v.moderation_status, \'Valid\') = \'Valid\' OR v.is_deleted = true THEN 0 ELSE 1 END +
+			                             CASE WHEN ifnull(o.moderation_status, \'Valid\') = \'Valid\' OR o.is_deleted = true THEN 0 ELSE 1 END) AS word_moderated_ct
+			                    FROM ses INNER JOIN
+			                         suggestions g USING (session_id) INNER JOIN
+			                         subjects s    USING (subject_id) INNER JOIN
+			                         verbs v       USING (verb_id)    INNER JOIN
+			                         objects o     USING (object_id) ),
+			         pit AS ( SELECT count(pitch_id) AS pitch_ct, min(when_submitted) AS earliest_pitch, max(when_submitted) AS latest_pitch,
+			                         sum(moderation_flag_ct) as pitch_flag_ct, sum(is_deleted) as pitch_deleted_ct, sum(shown_ct) AS pitch_shown_ct,
+			                         sum(CASE WHEN p.moderation_status IS NULL OR p.is_deleted = true THEN 0 ELSE 1 END) AS pitch_moderated_ct
+			                    FROM ses INNER JOIN
+			                         pitches p USING (session_id) ),
+			         req AS ( SELECT count(*) as total_reqs_ct, min(when_submitted) AS earliest_req, max(when_submitted) AS latest_req,
+			                         SUM(CASE WHEN accepted_by IS NULL THEN 0 ELSE 1 END) AS accepted_reqs_ct,
+			                         SUM(CASE WHEN rejected_by IS NULL THEN 0 ELSE 1 END) AS rejected_reqs_ct
+			                    FROM ses INNER JOIN 
+			                         moderations USING (session_id) )
+			    SELECT blocked_by, is_test, signature, ip_address, useragent, when_created, when_last_used, when_last_reviewed, when_last_reviewed_unix,
+			           idea_ct, earliest_idea, latest_idea, word_shown_ct, word_flag_ct, word_deleted_ct, word_moderated_ct,
+			           pitch_ct, earliest_pitch, latest_pitch, pitch_shown_ct, pitch_flag_ct, pitch_deleted_ct, pitch_moderated_ct,
+			           total_reqs_ct, earliest_req, latest_req, accepted_reqs_ct, rejected_reqs_ct
+			      FROM ses, sug, pit, req');
+	
+			if ($getStats->select($sessionId))
+			{
+				$result = new SessionSummary();
+				if (!$getStats->getRow($result->blockedBy, $result->isTest, $result->signature, $result->ipAddress, $result->userAgent,
+				                       $result->whenCreated, $result->whenLastUsed, $result->whenLastReviewed, $result->whenLastReviewedUnixTime,
+				                       $result->ideasCount, $result->ideasEarliest, $result->ideasLatest, $result->wordsShownCount,
+				                       $result->wordsFlaggedCount, $result->wordsDeletedCount, $result->wordsModeratedCount,
+				                       $result->pitchesCount, $result->pitchesEarliest, $result->pitchesLatest, $result->pitchesShownCount,
+				                       $result->pitchesFlaggedCount, $result->pitchesDeletedCount, $result->pitchesModeratedCount,
+				                       $result->modRequestsCount, $result->modRequestsEarliest, $result->modRequestsLatest,
+				                       $result->modRequestsAcceptedCount, $result->modRequestsRejectedCount))
+					return null;
+				return $result;
+			}
+		}
+		catch (Throwable $ex)
+		{
+			$this->saveError($ex);
+			return null;
+		}
+	}
+
+	public function getSessionHistory($sessionId): ?array
 	{
 		try
 		{
 			$getHistory = new Selector($this->marie, $this->log, 'iii', '
-			    WITH ide AS ( SELECT when_suggested AS when_posted, suggestion_id, subject_id, verb_id, object_id,
-			                         s.word AS subject, v.word AS verb, o.word AS object,
+			    WITH ide AS ( SELECT when_suggested AS when_posted, cast(unix_timestamp(when_suggested) AS double) AS when_posted_unix,
+			                         suggestion_id, subject_id, verb_id, object_id, s.word AS subject, v.word AS verb, o.word AS object,
 			                         s.shown_ct AS s_shown_ct, v.shown_ct AS v_shown_ct, o.shown_ct AS o_shown_ct,
 			                         s.moderation_flag_ct AS s_flag_ct, v.moderation_flag_ct AS v_flag_ct, o.moderation_flag_ct AS o_flag_ct,
 			                         s.moderation_status AS s_mod_status, v.moderation_status AS v_mod_status, o.moderation_status AS o_mod_status,
@@ -202,17 +266,20 @@ class PitchGameAdminConnection extends PitchGameConnection
 			                         verbs v    USING (verb_id) JOIN
 			                         objects o  USING (object_id)
 			                   WHERE session_id = ? ),
-			         pit AS ( SELECT when_submitted AS when_posted, NULL AS suggestion_id, NULL AS subject_id, NULL AS verb_id, NULL AS object_id,
-			                         NULL AS subject, NULL AS verb, NULL AS object, NULL AS s_shown_ct, NULL AS v_shown_ct, NULL AS o_shown_ct,
-			                         NULL AS s_flag_ct, NULL AS v_flag_ct, NULL AS o_flag_ct, NULL AS s_mod_status, NULL AS v_mod_status, NULL AS o_mod_status,
+			         pit AS ( SELECT when_submitted AS when_posted, cast(unix_timestamp(when_submitted) AS double) AS when_posted_unix,
+			                         NULL AS suggestion_id, NULL AS subject_id, NULL AS verb_id, NULL AS object_id,
+			                         NULL AS subject, NULL AS verb, NULL AS object,
+			                         NULL AS s_shown_ct, NULL AS v_shown_ct, NULL AS o_shown_ct,
+			                         NULL AS s_flag_ct, NULL AS v_flag_ct, NULL AS o_flag_ct,
+			                         NULL AS s_mod_status, NULL AS v_mod_status, NULL AS o_mod_status,
 			                         NULL AS s_is_deleted, NULL AS v_us_deleted, NULL AS o_is_deleted,
 			                         pitch_id, title, pitch, signature,
 			                         shown_ct AS p_shown_ct, moderation_flag_ct AS p_flag_ct,
 			                         moderation_status AS p_mod_status, is_deleted AS p_is_deleted,
 			                         NULL AS moderation_id, NULL AS accepted_by, NULL AS rejected_by
 			                    FROM pitches WHERE session_id = ? ),
-			         mor AS ( SELECT m.when_submitted AS when_posted, NULL AS suggestion_id, s.subject_id, v.verb_id, o.object_id,
-			                         s.word AS subject, v.word AS verb, o.word AS object,
+			         mor AS ( SELECT m.when_submitted AS when_posted, cast(unix_timestamp(m.when_submitted) AS double) AS when_posted_unix,
+			                         NULL AS suggestion_id, s.subject_id, v.verb_id, o.object_id, s.word AS subject, v.word AS verb, o.word AS object,
 			                         NULL AS s_shown_ct, NULL AS v_shown_ct, NULL AS o_shown_ct, NULL AS s_flag_ct, NULL AS v_flag_ct, NULL AS o_flag_ct,
 			                         s.moderation_status AS s_mod_status, v.moderation_status AS v_mod_status, o.moderation_status AS o_mod_status,
 			                         s.is_deleted AS s_is_deleted, v.is_deleted AS v_is_deleted, o.is_deleted AS o_is_deleted,
@@ -226,7 +293,7 @@ class PitchGameAdminConnection extends PitchGameConnection
 			                         objects o  ON m.object_id  = o.object_id
 			                   WHERE m.session_id = ? )
 			    SELECT * FROM pit UNION SELECT * FROM ide UNION SELECT * from mor
-                 ORDER BY when_posted DESC');
+			    ORDER BY when_posted DESC');
 
 			$getHistory->select($sessionId, $sessionId, $sessionId);
 			$results = [];
@@ -236,8 +303,8 @@ class PitchGameAdminConnection extends PitchGameConnection
 				$h->s = new HistoryPart();
 				$h->v = new HistoryPart();
 				$h->o = new HistoryPart();
-				$gotten = $getHistory->getRow($h->whenPosted, $h->suggestionId, $h->subjectId, $h->verbId, $h->objectId,
-				                              $h->subject, $h->verb, $h->object,
+				$gotten = $getHistory->getRow($h->whenPosted, $h->whenPostedUnixTime, $h->suggestionId,
+				                              $h->subjectId, $h->verbId, $h->objectId, $h->subject, $h->verb, $h->object,
 				                              $h->s->shownCount, $h->v->shownCount, $h->o->shownCount,
 				                              $h->s->flagCount, $h->v->flagCount, $h->o->flagCount,
 				                              $h->s->modStatus, $h->v->modStatus, $h->o->modStatus,
@@ -253,6 +320,7 @@ class PitchGameAdminConnection extends PitchGameConnection
 		catch (Throwable $ex)
 		{
 			$this->saveError($ex);
+			return null;
 		}
 	}
 
@@ -265,10 +333,8 @@ class PitchGameAdminConnection extends PitchGameConnection
 	private ?Updater $judgeVerb;
 	private ?Updater $absolveObject;
 	private ?Updater $judgeObject;
-	private ?Updater $acceptRequest;
-	private ?Updater $rejectRequest;
 
-	public function saveJudgment(ModerationRequest $modreq, ?string $judgmentP, ?string $judgmentS, ?string $judgmentV, ?string $judgmentO)
+	public function saveJudgment(ModerationRequest $modreq, ?string $judgmentP, ?string $judgmentS, ?string $judgmentV, ?string $judgmentO): bool
 	{
 		$code = null;
 		$reject = false;
@@ -295,155 +361,68 @@ class PitchGameAdminConnection extends PitchGameConnection
 				    'UPDATE objects SET moderation_flag_ct = 0, moderation_status = \'Valid\' WHERE object_id = ?');
 				$this->judgeObject = new Updater($this->marie, $this->log, 'isi',
 				    'UPDATE objects SET is_deleted = ?, moderation_status = ? WHERE object_id = ?');
-				// acceptRequest and rejectRequest may both be used; if so, leave both fields set to indicate mixed outcome
-				$this->acceptRequest = new Updater($this->marie, $this->log, 'ii',
-				    'UPDATE moderations SET accepted_by = ? WHERE moderation_id = ?');
-				$this->rejectRequest = new Updater($this->marie, $this->log, 'ii',
-				    'UPDATE moderations SET rejected_by = ? WHERE moderation_id = ?');
 			}
-			if ($modreq->pitchId && $judgmentP)
-			{
-				$this->interpretJudgment($judgmentP, $delete, $reject);
-				if ($reject)
-				{
-					$this->absolvePitch->update($modreq->pitchId);
-					$this->rejectRequest->update($this->sessionId, $modreq->moderationId);
-				}
-				else
-				{
-					$this->judgePitch->update($delete, $judgmentP, $modreq->pitchId);
-					$this->acceptRequest->update($this->sessionId, $modreq->moderationId);
-				}
-			}
-			if ($modreq->subjectId && $judgmentS)
-			{
-				$this->interpretJudgment($judgmentS, $delete, $reject);
-				if ($reject)
-				{
-					$this->absolveSubject->update($modreq->subjectId);
-					$this->rejectRequest->update($this->sessionId, $modreq->moderationId);
-				}
-				else
-				{
-					$this->judgeSubject->update($delete, $judgmentS, $modreq->subjectId);
-					$this->acceptRequest->update($this->sessionId, $modreq->moderationId);
-				}
-			}
-			if ($modreq->verbId && $judgmentV)
-			{
-				$this->interpretJudgment($judgmentV, $delete, $reject);
-				if ($reject)
-				{
-					$this->absolveVerb->update($modreq->verbId);
-					$this->rejectRequest->update($this->sessionId, $modreq->moderationId);
-				}
-				else
-				{
-					$this->judgeVerb->update($delete, $judgmentV, $modreq->verbId);
-					$this->acceptRequest->update($this->sessionId, $modreq->moderationId);
-				}
-			}
-			if ($modreq->objectId && $judgmentO)
-			{
-				$this->interpretJudgment($judgmentO, $delete, $reject);
-				if ($reject)
-				{
-					$this->absolveObject->update($modreq->objectId);
-					$this->rejectRequest->update($this->sessionId, $modreq->moderationId);
-				}
-				else
-				{
-					$this->judgeObject->update($delete, $judgmentO, $modreq->objectId);
-					$this->acceptRequest->update($this->sessionId, $modreq->moderationId);
-				}
-			}
+			$this->applyJudgment($judgmentP, $modreq->pitchId,   $modreq->moderationId, $this->absolvePitch,   $this->judgePitch);
+			$this->applyJudgment($judgmentS, $modreq->subjectId, $modreq->moderationId, $this->absolveSubject, $this->judgeSubject);
+			$this->applyJudgment($judgmentV, $modreq->verbId,    $modreq->moderationId, $this->absolveVerb,    $this->judgeVerb);
+			$this->applyJudgment($judgmentO, $modreq->objectId,  $modreq->moderationId, $this->absolveObject,  $this->judgeObject);
 			return true;
 		}
 		catch (Throwable $ex)
 		{
 			$this->saveError($ex);
+			return false;
 		}
 	}
-	
-	private function interpretJudgment(?string $judgment, bool &$delete, bool &$reject)
+
+	private ?Updater $acceptRequest = null;
+	private ?Updater $rejectRequest;
+
+	private function applyJudgment(?string $judgment, ?int $id, ?int $modId, Updater $absolver, Updater $judger)
 	{
-		$reject = false;
-		$delete = false;
+		if (!$id || !$judgment)
+			return;
+		if (!$this->acceptRequest)
+		{
+			// acceptRequest and rejectRequest may both be used; if so, leave both fields set to indicate mixed outcome
+			$this->acceptRequest = new Updater($this->marie, $this->log, 'ii',
+			    'UPDATE moderations SET accepted_by = ? WHERE moderation_id = ?');
+			$this->rejectRequest = new Updater($this->marie, $this->log, 'ii',
+			    'UPDATE moderations SET rejected_by = ? WHERE moderation_id = ?');
+		}
 		switch ($judgment)
 		{
 			case 'Valid':
 				$reject = true;
+				$delete = false;
 				break;
 			case 'Non-noun':
 			case 'Non-verb':
 			case 'Gibberish':
 			case 'Spam':
 			case 'Evil':
+			case 'Hacking':
+				$reject = false;
 				$delete = true;
 				break;
-			default: 		// Dubious, Misspelled, etc don't set either reject or delete
+			default: 		// Dubious, Misspelled, etc
+				$reject = false;
+				$delete = false;
 				break;
 		}
-	}
-
-	public function sessionStats(int $sessionId)
-	{
-		try
+		if ($reject)
 		{
-			$getStats = new Selector($this->marie, $this->log, 'i', '
-			    WITH ses AS ( SELECT session_id, is_test, blocked_by, signature, ip_address, useragent, s.when_created
-			                    FROM sessions s      -- later, add team stats
-			                   WHERE session_id = ? ),
-			         sug AS ( SELECT count(suggestion_id) as idea_ct, min(when_suggested) as earliest_idea, max(when_suggested) AS latest_idea,
-			                         sum(s.moderation_flag_ct + v.moderation_flag_ct + o.moderation_flag_ct) as word_flag_ct,
-			                         sum(s.is_deleted + v.is_deleted + o.is_deleted) as word_deleted_ct,
-			                         sum(s.shown_ct + v.shown_ct + o.shown_ct) AS word_shown_ct,
-			                         sum(CASE WHEN ifnull(s.moderation_status, \'Valid\') = \'Valid\' OR s.is_deleted = true THEN 0 ELSE 1 END +
-			                             CASE WHEN ifnull(v.moderation_status, \'Valid\') = \'Valid\' OR v.is_deleted = true THEN 0 ELSE 1 END +
-			                             CASE WHEN ifnull(o.moderation_status, \'Valid\') = \'Valid\' OR o.is_deleted = true THEN 0 ELSE 1 END) AS word_moderated_ct
-			                    FROM ses INNER JOIN
-			                         suggestions g USING (session_id) INNER JOIN
-			                         subjects s    USING (subject_id) INNER JOIN
-			                         verbs v       USING (verb_id)    INNER JOIN
-			                         objects o     USING (object_id) ),
-			         pit AS ( SELECT count(pitch_id) AS pitch_ct, min(when_submitted) AS earliest_pitch, max(when_submitted) AS latest_pitch,
-			                         sum(moderation_flag_ct) as pitch_flag_ct, sum(is_deleted) as pitch_deleted_ct, sum(shown_ct) AS pitch_shown_ct,
-			                         sum(CASE WHEN p.moderation_status IS NULL OR p.is_deleted = true THEN 0 ELSE 1 END) AS pitch_moderated_ct
-			                    FROM ses INNER JOIN
-			                         pitches p USING (session_id) ),
-			         req AS ( SELECT count(*) as total_reqs_ct, min(when_submitted) AS earliest_req, max(when_submitted) AS latest_req,
-			                         SUM(CASE WHEN accepted_by IS NULL THEN 0 ELSE 1 END) AS accepted_reqs_ct,
-			                         SUM(CASE WHEN rejected_by IS NULL THEN 0 ELSE 1 END) AS rejected_reqs_ct
-			                    FROM ses INNER JOIN 
-			                         moderations USING (session_id) )
-			    SELECT blocked_by, is_test, signature, ip_address, useragent, when_created,
-			           idea_ct, earliest_idea, latest_idea, word_shown_ct, word_flag_ct, word_deleted_ct, word_moderated_ct,
-			           pitch_ct, earliest_pitch, latest_pitch, pitch_shown_ct, pitch_flag_ct, pitch_deleted_ct, pitch_moderated_ct,
-			           total_reqs_ct, earliest_req, latest_req, accepted_reqs_ct, rejected_reqs_ct
-			      FROM ses, sug, pit, req');
-	
-			if ($getStats->select($sessionId))
-			{
-				$result = new SessionSummary();
-				if (!$getStats->getRow($result->blockedBy, $result->isTest, $result->signature,
-				                       $result->ipAddress, $result->userAgent, $result->whenCreated,
-				                       $result->ideasCount, $result->ideasEarliest, $result->ideasLatest, $result->wordsShownCount,
-				                       $result->wordsFlaggedCount, $result->wordsDeletedCount, $result->wordsModeratedCount,
-				                       $result->pitchesCount, $result->pitchesEarliest, $result->pitchesLatest, $result->pitchesShownCount,
-				                       $result->pitchesFlaggedCount, $result->pitchesDeletedCount, $result->pitchesModeratedCount,
-				                       $result->modRequestsCount, $result->modRequestsEarliest, $result->modRequestsLatest,
-				                       $result->modRequestsAcceptedCount, $result->modRequestsRejectedCount))
-					return null;
-				return $result;
-			}
+			$absolver->update($id);
+			$this->rejectRequest->update($this->sessionId, $modId);
 		}
-		catch (Throwable $ex)
+		else
 		{
-			$this->saveError($ex);
+			$judger->update($delete, $judgment, $id);
+			$this->acceptRequest->update($this->sessionId, $modId);
 		}
 	}
 
-	public function blockSession(int $sessionId, bool $block)
+	public function blockSession(int $sessionId, bool $block): bool
 	{
 		try
 		{
@@ -454,10 +433,11 @@ class PitchGameAdminConnection extends PitchGameConnection
 		catch (Throwable $ex)
 		{
 			$this->saveError($ex);
+			return false;
 		}
 	}
 
-	public function purgeSession(int $sessionId)
+	public function purgeSession(int $sessionId): bool
 	{
 		try
 		{
@@ -497,27 +477,35 @@ class PitchGameAdminConnection extends PitchGameConnection
 		{
 			$this->marie->rollback();			
 			$this->saveError($ex);
+			return false;
 		}
 	}
 
-	public function getSuspiciousSessions(int $ageInDays)
+	public function getSuspiciousSessions(int $ageInDays): ?array
 	{
 		try
 		{
 			$findUsers = new Selector($this->marie, $this->log, 'i', '
-			    WITH words AS ( SELECT session_id, signature, when_last_used,
-			                           sum(s.is_deleted + v.is_deleted + o.is_deleted) AS word_deletions
-			                      FROM sessions INNER JOIN
-			                           suggestions g USING (session_id) INNER JOIN
+			    WITH sesns AS ( SELECT session_id, signature, when_last_used, when_last_reviewed
+				                  FROM sessions
+								 WHERE blocked_by IS NULL AND datediff(now(), when_last_used) <= ? ),
+			         words AS ( SELECT session_id, sum(s.is_deleted + v.is_deleted + o.is_deleted) AS word_deletions
+			                      FROM sesns INNER JOIN
+								       suggestions g USING (session_id) INNER JOIN
 			                           subjects s    USING (subject_id) INNER JOIN
 			                           verbs v       USING (verb_id)    INNER JOIN
 			                           objects o     USING (object_id) 
-			                     WHERE blocked_by IS NULL AND datediff(now(), when_last_used) <= ?
-			                     GROUP BY session_id, signature, when_last_used )
-			    SELECT session_id, words.signature, when_last_used, word_deletions + sum(ifnull(p.is_deleted, 0)) AS deletions
-			      FROM words LEFT OUTER JOIN pitches p USING (session_id)
-			     WHERE word_deletions > 0 OR p.is_deleted <> 0
-			     GROUP BY session_id, signature, when_last_used
+			                     WHERE when_suggested >= ifnull(when_last_reviewed, DATE \'1901-01-01\')
+			                     GROUP BY session_id ),
+			         ptchs AS ( SELECT session_id, sum(is_deleted) AS pitch_deletions
+					              FROM sesns INNER JOIN pitches USING (session_id)
+								 WHERE when_submitted >= ifnull(when_last_reviewed, DATE \'1901-01-01\')
+								 GROUP BY session_id )
+			    SELECT session_id, signature, when_last_used, ifnull(word_deletions, 0) + ifnull(pitch_deletions, 0) AS deletions
+                  FROM sesns LEFT JOIN
+				       words USING (session_id) LEFT JOIN
+					   ptchs USING (session_id)
+                 WHERE word_deletions > 0 OR pitch_deletions > 0
 			     ORDER BY deletions DESC, when_last_used DESC');
 
 			$results = [];
@@ -533,6 +521,7 @@ class PitchGameAdminConnection extends PitchGameConnection
 		catch (Throwable $ex)
 		{
 			$this->saveError($ex);
+			return null;
 		}
 	}
 }

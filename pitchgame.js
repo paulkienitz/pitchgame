@@ -14,6 +14,12 @@ function polyfill_closest()
 		};
 }
 
+function captchaSatisfied()
+{
+	var submitter = document.getElementById('submitter');
+	submitter.disabled = false;
+}
+
 function showHints(ev)
 {
 	var plopup = document.getElementById('howtoplay');

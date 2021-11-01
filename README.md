@@ -19,7 +19,7 @@ Fourth checkin, prerelease 0.4, added no significant features but checked a lot 
 
 Fifth checkin, prerelease 0.5, adds moderator review of a user's full history, with options to block the user or purge their entire contribution.
 
-Sixth through eighth checkins add improved moderator ability to review user histories, plus fixes and refactors.
+Sixth through ninth checkins add improved moderator ability to review user histories and recaptcha support, plus fixes and refactors.
 I'm moving to a finer grained checkin schedule now and not using prerelease numbers.
 
 Yet to be added are more cosmetics, proper login (maybe including SSO), and the team play feature.
@@ -59,4 +59,5 @@ Use "pitchgame tables.sql" to create the database, but don't upload that file to
 Configure your database password in php.ini as mysqli.default_pw.
 Use .htaccess or equivalent to forbid downloading php.ini or .htaccess itself.
 Also use it to make pitchgame.php the default index page in its directory, if that's desirable, i.e. if the game is in its own separate directory.
+Adjust the constants at the top of pitchdata.php if you want to use recaptcha.
 Then upload the other files and test it out.

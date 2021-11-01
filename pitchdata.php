@@ -38,18 +38,28 @@ class RatedPitch extends Pitch
 
 class PitchGameConnection
 {
+	// 0 = fully anonymous, 1 = new seasions must captcha, 2 = returning sessions must captcha, 3 = ...must SSO?
+	const SECURITY_LEVEL = 0;
+	const CAPTCHA_SITE_KEY = '--';		// get values by signing up your site at recaptcha.google.com
+	const CAPTCHA_SECRET = '--';
+
 	protected mysqli    $marie;
 	protected bool      $preparedOK = false;
 	protected int       $sessionId = 0;
+	protected ?int      $teamId = null;
+	protected bool      $privatePlay = false;
 	protected SqlLogger $log;
 
 	// EXTERNALS:
 
-	public ?string    $defaultSignature;
-	public bool       $isBlocked = false;
-	public bool       $isTester = false;
-	public bool       $hasDebugAccess = false;
-	public string     $lastError = '';
+	public ?string      $nickname;
+	public ?string      $defaultSignature;
+	public bool         $isBlocked = false;
+	public bool         $isTester = false;
+	public bool         $hasDebugAccess = false;
+	public bool         $passedCaptcha = false;
+	public bool         $needsCaptcha = false;
+	public string       $lastError = '';
 
 	public function __construct()
 	{
@@ -72,42 +82,50 @@ class PitchGameConnection
 		$this->marie->close();
 	}
 
-	public function isReady()
+	public function isReady(): bool
 	{
 		return $this->preparedOK;
 	}
 
-	public function getLog()
+	public function teamMode(): bool
+	{
+		return !!$this->teamId;
+	}
+
+	public function getLog(): string
 	{
 		return $this->log->log;
 	}
 
-	public function getSessionByToken(string $token, string $ipAddress)
+	public function getSessionByToken(string $token, string $ipAddress, string $userAgent): bool
 	{
 		try
 		{
 			$minutesOld = 0;
 			$blockedBy = null;
 			$getSession = new Selector($this->marie, $this->log, 's',
-			    'SELECT session_id, signature, blocked_by, is_test, has_debug_access,
+			    'SELECT session_id, nickname, signature, blocked_by, passed_captcha, is_test, has_debug_access,
 			            timestampdiff(MINUTE, when_last_used, now()) AS minutes_old
 			       FROM sessions WHERE cookie_token = ?');
-			$updateSession = new Updater($this->marie, $this->log, 'si',
-			    'UPDATE sessions SET ip_address = ?, when_last_used = now() WHERE session_id = ?');
+			$updateSession = new Updater($this->marie, $this->log, 'ssi',
+			    'UPDATE sessions SET ip_address = ?, useragent = ?, when_last_used = now() WHERE session_id = ?');
 			$getSession->select($token);
-			$getSession->getRow($this->sessionId, $this->defaultSignature, $blockedBy, $this->isTester, $this->hasDebugAccess, $minutesOld);
+			$getSession->getRow($this->sessionId, $this->nickname, $this->defaultSignature, $blockedBy,
+			                    $this->passedCaptcha, $this->isTester, $this->hasDebugAccess, $minutesOld);
 			$this->isBlocked = !!$blockedBy;
+			$this->needsCaptcha = !$this->passedCaptcha && self::SECURITY_LEVEL == 2;
 			if ($minutesOld >= 5)
-				$updateSession->update($ipAddress, $this->sessionId);
+				$updateSession->update($ipAddress, $userAgent, $this->sessionId);
 			return !!$this->sessionId;
 		}
 		catch (Throwable $ex)
 		{
 			$this->saveError($ex);
+			return false;
 		}
 	}
 
-	public function makeSession(string $ipAddress, string $userAgent)
+	public function makeSession(string $ipAddress, string $userAgent): ?string
 	{
 		try
 		{
@@ -116,7 +134,25 @@ class PitchGameConnection
 			$getToken = new ScalarSelector($this->marie, $this->log, 'i',
 			    'SELECT cookie_token FROM sessions WHERE session_id = ?');
 			$this->sessionId = $addSession->insert($ipAddress, $userAgent);
+			$this->needsCaptcha = self::SECURITY_LEVEL == 1 || self::SECURITY_LEVEL == 2;
 			return $getToken->select($this->sessionId);
+		}
+		catch (Throwable $ex)
+		{
+			$this->saveError($ex);
+			return null;
+		}
+	}
+
+	public function captchaPass()
+	{
+		try
+		{
+			$this->passedCaptcha = true;
+			$this->needsCaptcha = false;
+			$setCaptcha = new Updater($this->marie, $this->log, 'i',
+			    'UPDATE sessions SET passed_captcha = true WHERE session_id = ?');
+			$setCaptcha->update($this->sessionId);
 		}
 		catch (Throwable $ex)
 		{
@@ -124,9 +160,50 @@ class PitchGameConnection
 		}
 	}
 
-	// How exactly should we handle sessions in team play?  Does the same cookie apply to team and non-team sessions?
+	public function captchaFail($response, $token, $code)
+	{
+		$msg = "Session $con->sessionId flunked captcha with token $token — server responded $code:\n" . SqlLogger::nust($response) . "\n";
+		$this->log->log($msg);
+		error_log($msg);
+	}
 
-	public function addWords(string $initialSubject, string $initialVerb, string $initialObject)
+	public function createTeam($private): ?string
+	{
+		try
+		{
+			$addTeam = new Inserter($this->marie, $this->log, 'i',
+			    'INSERT INTO teams (is_private, token) VALUES (?, uuid())');
+			$getToken = new ScalarSelector($this->marie, $this->log, 'i',
+			    'SELECT token FROM teams WHERE team_id = ?');
+			$teamId = $addSession->insert($private);
+			return $getToken->select($teamId);
+		}
+		catch (Throwable $ex)
+		{
+			$this->saveError($ex);
+			return null;
+		}
+	}
+
+	public function joinTeam(string $token): bool
+	{
+		try
+		{
+			$getTeam = new Selector($this->marie, $this->log, 's',
+			    'SELECT team_id, is_private FROM teams WHERE token = ?');
+			$getTeam->select($token);
+			$getTeam->getRow($this->teamId, $this->privatePlay);
+			$this->isBlocked = !!$blockedBy;
+			return !!$this->teamId;
+		}
+		catch (Throwable $ex)
+		{
+			$this->saveError($ex);
+			return false;
+		}
+	}
+
+	public function addWords(string $initialSubject, string $initialVerb, string $initialObject): bool
 	{
 		try
 		{
@@ -157,11 +234,12 @@ class PitchGameConnection
 		{
 			$this->marie->rollback();
 			$this->saveError($ex);
+			return false;
 		}
 	}
 
 	// The purpose of the seed is to prevent users from changing their challenge with the refresh button.
-	public function getChallenge(int $seed)
+	public function getChallenge(int $seed): ?Challenge
 	{
 		try
 		{
@@ -197,11 +275,12 @@ class PitchGameConnection
 		catch (Throwable $ex)
 		{
 			$this->saveError($ex);
+			return null;
 		}
 	}
 	
 	// both players and admins can mark words or pitches to be moderated
-	public function flagWordsForModeration(Challenge $challenge, bool $badsubject, bool $badverb, bool $badobject)
+	public function flagWordsForModeration(Challenge $challenge, bool $badsubject, bool $badverb, bool $badobject): ?Challenge
 	{
 	    try
 		{
@@ -243,10 +322,11 @@ class PitchGameConnection
 		catch (Throwable $ex)
 		{
 			$this->saveError($ex);
+			return null;
 		}
 	}
 
-	public function addPitch(Challenge &$challenge, string $title, string $pitch, ?string $signature, bool $setDefaultSig)
+	public function addPitch(Challenge &$challenge, string $title, string $pitch, ?string $signature, bool $setDefaultSig): bool
 	{
 		try
 		{
@@ -262,6 +342,7 @@ class PitchGameConnection
 			// should we make this a transaction?  probably not necessary
 			$addPitch->insert($this->sessionId, $challenge->subjectId, $challenge->verbId,
 			                  $challenge->objectId, $title, $pitch, $signature);
+			// argh I don't remember why I postponed setting last_shown until now...
 			$updateSubject->update($challenge->subjectId);
 			$updateVerb->update($challenge->verbId);
 			$updateObject->update($challenge->objectId);
@@ -277,10 +358,11 @@ class PitchGameConnection
 		catch (Throwable $ex)
 		{
 			$this->saveError($ex);
+			return false;
 		}
 	}
 
-	public function getPitchesToReview(int $seed)
+	public function getPitchesToReview(int $seed): ?array
 	{
 		try
 		{
@@ -327,6 +409,7 @@ class PitchGameConnection
 		{
 			$this->marie->rollback();
 			$this->saveError($ex);
+			return null;
 		}
 	}
 
@@ -337,7 +420,7 @@ class PitchGameConnection
 	private ?Inserter $addModeration;
 
 	// admins use this only with rating -1, which means mark for moderation
-	public function ratePitch(int $pitchId, int $rating)
+	public function ratePitch(int $pitchId, int $rating): bool
 	{
 		try
 		{
@@ -366,10 +449,11 @@ class PitchGameConnection
 		catch (Throwable $ex)
 		{
 			$this->saveError($ex);
+			return false;
 		}
 	}
 
-	public function getOldFavoritePitches($seed)
+	public function getOldFavoritePitches($seed): ?array
 	{
 		try
 		{
@@ -413,6 +497,7 @@ class PitchGameConnection
 		catch (Throwable $ex)
 		{
 			$this->saveError($ex);
+			return null;
 		}
 	}
 
@@ -426,7 +511,7 @@ class PitchGameConnection
 }
 
 
-function formatThrowable(?Throwable $ex, bool $includeTrace = false)
+function formatThrowable(?Throwable $ex, bool $includeTrace = false): ?string
 {
 	if (!$ex)
 		return null;
