@@ -38,22 +38,25 @@ class RatedPitch extends Pitch
 
 class PitchGameConnection
 {
-	// 0 = fully anonymous, 1 = new seasions must captcha, 2 = returning sessions must captcha, 3 = ...must SSO?
-	const SECURITY_LEVEL = 0;
-	const CAPTCHA_SITE_KEY = '--';		// get values by signing up your site at recaptcha.google.com
-	const CAPTCHA_SECRET = '--';
+	// 0 = fully anonymous, 1 = new nonteam seasions must captcha, 2 = returning sessions must captcha, 3 = ...must SSO?
+	const SECURITY_LEVEL = 2;
+	const REQUIRE_NICKNAME = true;
+	const CAPTCHA_SITE_KEY = '6LeXlwYdAAAAAGrXImPQ0NpZUq86BYPwjTqCWnwE';
+	const CAPTCHA_SECRET = '6LeXlwYdAAAAAAxlSus2oofxJJdqvv531MsAwSTy';
 
 	protected mysqli    $marie;
 	protected bool      $preparedOK = false;
 	protected int       $sessionId = 0;
 	protected ?int      $teamId = null;
+	protected ?int      $currentParticipationId = null;
+	protected ?int      $currentRound = null;
 	protected bool      $privatePlay = false;
 	protected SqlLogger $log;
 
 	// EXTERNALS:
 
-	public ?string      $nickname;
-	public ?string      $defaultSignature;
+	public ?string      $nickname = null;
+	public ?string      $defaultSignature = null;
 	public bool         $isBlocked = false;
 	public bool         $isTester = false;
 	public bool         $hasDebugAccess = false;
@@ -163,8 +166,27 @@ class PitchGameConnection
 	public function captchaFail($response, $token, $code)
 	{
 		$msg = "Session $con->sessionId flunked captcha with token $token — server responded $code:\n" . SqlLogger::nust($response) . "\n";
-		$this->log->log($msg);
 		error_log($msg);
+		$this->log->log($msg);
+	}
+
+	public function setNickname(string $nick): bool
+	{
+		try
+		{
+			$nick = trim($nick);
+			if (!$nick)
+				return false;
+			$this->nickname = $nick;
+			$setNickname = new Updater($this->marie, $this->log, 'si',
+			    'UPDATE sessions SET nickname = ? WHERE session_id = ?');
+			return $setNickname->update($nick, $this->sessionId);
+		}
+		catch (Throwable $ex)
+		{
+			$this->saveError($ex);
+			return false;
+		}
 	}
 
 	public function createTeam($private): ?string
@@ -191,9 +213,11 @@ class PitchGameConnection
 		{
 			$getTeam = new Selector($this->marie, $this->log, 's',
 			    'SELECT team_id, is_private FROM teams WHERE token = ?');
+			// XXX *** INSERT INTO participations ... UPDATE in some cases?... set $currentParticipationId and $currentRound
+			// XXX     How do we tell when to start a new round??  This will require careful setup.
 			$getTeam->select($token);
 			$getTeam->getRow($this->teamId, $this->privatePlay);
-			$this->isBlocked = !!$blockedBy;
+			$this->needsCaptcha = !$this->passedCaptcha && self::SECURITY_LEVEL == 2;
 			return !!$this->teamId;
 		}
 		catch (Throwable $ex)
@@ -207,9 +231,14 @@ class PitchGameConnection
 	{
 		try
 		{
-			$addSubject    = new Inserter($this->marie, $this->log, 's', 'INSERT IGNORE INTO subjects (word) VALUES (?)');
-			$addVerb       = new Inserter($this->marie, $this->log, 's', 'INSERT IGNORE INTO verbs    (word) VALUES (?)');
-			$addObject     = new Inserter($this->marie, $this->log, 's', 'INSERT IGNORE INTO objects  (word) VALUES (?)');
+			// The unique keys on the word tables make these inserts affect zero rows and return falsy when a
+			// non-team player suggests a word that has been used before in non-team play.  (Make case insensitive?)
+			$addSubject    = new Inserter($this->marie, $this->log, 'sii',
+			    'INSERT IGNORE INTO subjects (word, is_private, participation_id) VALUES (?, ?, ?)');
+			$addVerb       = new Inserter($this->marie, $this->log, 'sii',
+			    'INSERT IGNORE INTO verbs    (word, is_private, participation_id) VALUES (?, ?, ?)');
+			$addObject     = new Inserter($this->marie, $this->log, 'sii',
+			    'INSERT IGNORE INTO objects  (word, is_private, participation_id) VALUES (?, ?, ?)');
 			$getSubject    = new ScalarSelector($this->marie, $this->log, 's', 'SELECT subject_id FROM subjects WHERE word = ?');
 			$getVerb       = new ScalarSelector($this->marie, $this->log, 's', 'SELECT verb_id    FROM verbs    WHERE word = ?');
 			$getObject     = new ScalarSelector($this->marie, $this->log, 's', 'SELECT object_id  FROM objects  WHERE word = ?');
@@ -217,13 +246,16 @@ class PitchGameConnection
 			    'INSERT IGNORE INTO suggestions (session_id, subject_id, verb_id, object_id) VALUES (?, ?, ?, ?)');
 
 			$this->marie->begin_transaction();
-			$subjectId = $addSubject->insert($initialSubject) ?: $getSubject->select($initialSubject);
+			$subjectId = $addSubject->insert($initialSubject, $this->privatePlay, $this->currentParticipationId)
+			             ?: $getSubject->select($initialSubject);
 			if (!$subjectId)
 				throw new Exception("No subjectId found after insert of $initialSubject");
-			$verbId    = $addVerb->insert($initialVerb)       ?: $getVerb->select($initialVerb);
+			$verbId    = $addVerb->insert($initialVerb, $this->privatePlay, $this->currentParticipationId)
+			             ?: $getVerb->select($initialVerb);
 			if (!$verbId)
 				throw new Exception("No verbId found after insert of $initialVerb");
-			$objectId  = $addObject->insert($initialObject)   ?: $getObject->select($initialObject);
+			$objectId  = $addObject->insert($initialObject, $this->privatePlay, $this->currentParticipationId)
+			             ?: $getObject->select($initialObject);
 			if (!$objectId)
 				throw new Exception("No objectId found after insert of $initialObject");
 			$addSuggestion->insert($this->sessionId, $subjectId, $verbId, $objectId);
@@ -243,17 +275,17 @@ class PitchGameConnection
 	{
 		try
 		{
-			$getChallenge  = new Selector($this->marie, $this->log, 'iii', '
+			$getChallenge /*non-team*/ = new Selector($this->marie, $this->log, 'iii', '
 			    WITH sub AS ( SELECT subject_id, word FROM subjects
-			                   WHERE is_deleted = false  -- AND last_shown < date_sub(now(), INTERVAL 1 HOUR)
+			                   WHERE is_deleted = false AND is_private = false
 			                   ORDER BY shown_ct + 4 * moderation_flag_ct, last_shown
 			                   LIMIT 100 ),
 			         vrb AS ( SELECT verb_id, word FROM verbs
-			                   WHERE is_deleted = false  -- AND last_shown < date_sub(now(), INTERVAL 1 HOUR)
+			                   WHERE is_deleted = false AND is_private = false
 			                   ORDER BY shown_ct + 4 * moderation_flag_ct, last_shown
 			                   LIMIT 100 ),
 			         obj AS ( SELECT object_id, word FROM objects
-			                   WHERE is_deleted = false  -- AND last_shown < date_sub(now(), INTERVAL 1 HOUR)
+			                   WHERE is_deleted = false AND is_private = false
 			                   ORDER BY shown_ct + 4 * moderation_flag_ct, last_shown
 			                   LIMIT 100 ),
 			         ras AS ( SELECT subject_id, word FROM sub ORDER BY rand(?) LIMIT 1 ),
@@ -261,8 +293,10 @@ class PitchGameConnection
 			         rao AS ( SELECT object_id, word  FROM obj ORDER BY rand(?) LIMIT 1 )
 			    SELECT subject_id, ras.word AS subject_noun, verb_id, rav.word AS verb, object_id, rao.word AS object_noun
 			      FROM ras, rav, rao');
-			// todo: $getChallengeFromTeam version of query
-
+			// For this we use teamId and currentRound as seed because it needs to match for all current participants.
+			// The idea is to have a common list of all current participants which is rotated randomly but consistently.
+			$getChallengeFromTeam = new Selector($this->marie, $this->log, 'iiii', '
+			    ');
 			$challenge = new Challenge();
 			if ($getChallenge->select($seed, $seed, $seed) &&
 			    $getChallenge->getRow($challenge->subjectId, $challenge->subject,
@@ -330,8 +364,9 @@ class PitchGameConnection
 	{
 		try
 		{
-			$addPitch = new Inserter($this->marie, $this->log, 'iiiisss',
-			    'INSERT IGNORE INTO pitches (session_id, subject_id, verb_id, object_id, title, pitch, signature) VALUES (?, ?, ?, ?, ?, ?, ?)');
+			$addPitch = new Inserter($this->marie, $this->log, 'iiiisssii',
+			    'INSERT IGNORE INTO pitches (session_id, subject_id, verb_id, object_id, title, pitch, signature, is_private, participation_id)
+			     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
 			$updateSubject = new Updater($this->marie, $this->log, 'i',
 			    'UPDATE subjects SET last_shown = now(), shown_ct = shown_ct + 1 WHERE subject_id = ?');
 			$updateVerb    = new Updater($this->marie, $this->log, 'i',
@@ -340,8 +375,8 @@ class PitchGameConnection
 			    'UPDATE objects  SET last_shown = now(), shown_ct = shown_ct + 1 WHERE object_id  = ?');
 
 			// should we make this a transaction?  probably not necessary
-			$addPitch->insert($this->sessionId, $challenge->subjectId, $challenge->verbId,
-			                  $challenge->objectId, $title, $pitch, $signature);
+			$addPitch->insert($this->sessionId, $challenge->subjectId, $challenge->verbId, $challenge->objectId,
+			                  $title, $pitch, $signature, $this->privatePlay, $this->currentParticipationId);
 			// argh I don't remember why I postponed setting last_shown until now...
 			$updateSubject->update($challenge->subjectId);
 			$updateVerb->update($challenge->verbId);
@@ -367,11 +402,9 @@ class PitchGameConnection
 		try
 		{
 			// XXX sometimes nonperformant, intermittently:
-			$getPitches = new Selector($this->marie, $this->log, 'iii', '
+			$getPitches /*non-team*/ = new Selector($this->marie, $this->log, 'iii', '
 			    WITH pits AS ( SELECT pitch_id, subject_id, verb_id, object_id, title, pitch, signature FROM pitches p
-			                    WHERE is_deleted = false
-			                      -- AND last_shown < date_sub(now(), INTERVAL 1 HOUR)
-			                      AND session_id <> ?
+			                    WHERE is_deleted = false AND is_private = false AND session_id <> ?
 			                      AND NOT EXISTS ( SELECT rating_id FROM ratings r
 			                                        WHERE r.pitch_id = p.pitch_id AND r.session_id = ? )
 			                    ORDER BY shown_ct + 2 * moderation_flag_ct, last_shown
@@ -379,9 +412,9 @@ class PitchGameConnection
 			    SELECT pitch_id, subject_id, verb_id, object_id,
 			           s.word as subject_noun, v.word as verb, o.word as object_noun,
 			           title, pitch, signature
-			      FROM pits JOIN subjects s USING (subject_id)
-			                JOIN verbs v USING (verb_id)
-			                JOIN objects o USING (object_id)
+			      FROM pits INNER JOIN subjects s USING (subject_id)
+			                INNER JOIN verbs v USING (verb_id)
+			                INNER JOIN objects o USING (object_id)
 			     ORDER BY rand(?) LIMIT 4');   // limit can’t be parameterized, apparently
 			// todo: add $getPitchesFromTeam version of query
 			$updatePitch = new Updater($this->marie, $this->log, 'i',
@@ -461,10 +494,8 @@ class PitchGameConnection
 			$getPitches = new Selector($this->marie, $this->log, 'iii', '
 			    WITH pits AS ( SELECT pitch_id, subject_id, verb_id, object_id, title, pitch, signature, rating
 		                         FROM pitches p JOIN ratings r USING (pitch_id)
-			                    WHERE is_deleted = false
-			                      -- AND last_shown < date_sub(now(), INTERVAL 1 HOUR)
-			                      AND p.session_id <> ?
-			                      AND r.session_id = ?
+			                    WHERE is_deleted = false AND is_private = false
+			                      AND p.session_id <> ? AND r.session_id = ?
 			                      AND rating >= 3
 			                    ORDER BY shown_ct + 2 * moderation_flag_ct, last_shown
 			                    LIMIT 100 )
@@ -475,9 +506,9 @@ class PitchGameConnection
 			              WHERE rr.pitch_id = pits.pitch_id ) AS avg_rating,
 			           ( SELECT count(rating) FROM ratings rrr
 			              WHERE rrr.pitch_id = pits.pitch_id ) AS rating_ct
-			      FROM pits JOIN subjects s USING (subject_id)
-			                JOIN verbs v USING (verb_id)
-			                JOIN objects o USING (object_id)
+			      FROM pits INNER JOIN subjects s USING (subject_id)
+			                INNER JOIN verbs v USING (verb_id)
+			                INNER JOIN objects o USING (object_id)
 			     ORDER BY rand(?) LIMIT 3');
 
 			$getPitches->select($this->sessionId, $this->sessionId, $seed);
@@ -504,22 +535,9 @@ class PitchGameConnection
 	public function saveError(?Throwable $ex)
 	{
 		if ($ex)
-			error_log(formatThrowable($ex, true));
+			error_log(SqlLogger::formatThrowable($ex));
 		if (!$this->lastError && $ex)
-			$this->lastError = formatThrowable($ex) . "\n\n" . $this->log->log;
+			$this->lastError = SqlLogger::formatThrowable($ex) . "\n\n" . $this->log->log;
 	}
-}
-
-
-function formatThrowable(?Throwable $ex, bool $includeTrace = false): ?string
-{
-	if (!$ex)
-		return null;
-	$code = $ex->getCode() ? ' (' . $ex->getCode() . ')' : '';
-	$line = (count($ex->getTrace()) ? $ex->getTrace()[0]['line'] . '/' : '') . $ex->getLine();
-	$trace = $includeTrace ? "\n" . $ex->getTraceAsString() : '';
-	$inner = $ex->getPrevious() ? "\n---- Inner exception:\n" . formatThrowable($ex->getPrevious()) : '';
-	return get_class($ex) . $code . ' at line ' . $line . ': ' . $ex->getMessage()
-	       . $trace . $inner;
 }
 ?>

@@ -105,7 +105,14 @@ function beHistoricalDirectly(ev)
 	var sessionId = this.id.substring(8);
 	var lsi = document.getElementById('lastSessionId');
 	lsi.value = sessionId + '';
-	beHistorical(ev);
+	return beHistorical(ev);
+}
+
+function ensurePronounce(ev)
+{
+	var formtype = document.getElementById('formtype');
+	formtype.value = 'judgerequests';
+	return true;
 }
 
 function changeDays(ev)
@@ -182,11 +189,12 @@ function init()
 	attach('#moderato', beModerate);
 	attach('.star', rateWithStars);
 	attach('.spam', rateAsSpamOrClear);
-	attach('.fields .slinky', showSessionSummary);
+	attach('.fields .slinky, .his .slinky', showSessionSummary);
 	attach('.direct .slinky', beHistoricalDirectly);
 	attach('#historicize', beHistorical);       // normally used only in a SPARE popup
 	attach('#daysOldDropdown', changeDays, 'change');
 	attach('#backToList', changeDaysMaybe);
+	attach('#pronounce', ensurePronounce);
 }
 
 window.addEventListener("DOMContentLoaded", init);

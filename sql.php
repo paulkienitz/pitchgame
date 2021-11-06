@@ -55,6 +55,22 @@ class SqlLogger
 		$this->lastLoggedTime = $t;
 		$this->log .= $msg;
 	}
+
+	public static function shortFilePaths(string $textWithPaths): string
+	{
+		return str_replace($_SERVER['DOCUMENT_ROOT'], '', $textWithPaths);
+	}
+	
+	public static function formatThrowable(?Throwable $ex): ?string
+	{
+		if (!$ex)
+			return null;
+		$type = get_class($ex) . ($ex->getCode() ? ' (' . $ex->getCode() . ')' : '');
+		$line = self::shortFilePaths($ex->getFile()) . ' line ' . $ex->getLine();
+		$trace = self::shortFilePaths("\n" . $ex->getTraceAsString());
+		$inner = $ex->getPrevious() ? "\n---- Caused by:\n" . formatThrowable($ex->getPrevious()) : '';
+		return $type . ' at ' . $line . ': ' . $ex->getMessage() . $trace . $inner;
+	}
 }
 
 

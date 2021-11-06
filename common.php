@@ -30,7 +30,7 @@ function connectToSession(PitchGameConnection &$con): bool
 		if ($token)
 		{
 			setcookie('pitchgame', $token, time() + 366*86400);  // a year
-			setcookie('fresh', '-', time() + 60*86400);
+			setcookie('fresh', '1', time() + 30*86400);
 		}
 		else
 			return false;
@@ -38,7 +38,7 @@ function connectToSession(PitchGameConnection &$con): bool
 	else if (!isset($_COOKIE['fresh']))     // refresh the expiration date
 	{
 		setcookie('pitchgame', $_COOKIE['pitchgame'], time() + 366*86400);
-		setcookie('fresh', '-', time() + 60*86400);
+		setcookie('fresh', '1', time() + 30*86400);
 	}
 	return true;
 }

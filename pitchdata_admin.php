@@ -8,28 +8,27 @@ require 'pitchdata.php';
 
 // objects returned by PitchGameAdminConnection methods:
 
+class Moderated
+{
+	public ?string $when;
+	public ?int    $sessionId;
+	public ?string $nickname;
+	public ?int    $flagCount;
+	public ?int    $dupes;
+}
+
 // A moderation request applies either to a pitch or to challenge words.
 class ModerationRequest extends Pitch
 {
-	public ?int    $moderationId;
-	public ?string $whenRequested;
-	public ?int    $requestorSessionId;
-	public ?int    $flagDupes;
-	public ?string $whenPitched;
-	public ?int    $pitchSessionId;
-	public ?int    $pitchFlagCount;
-	public ?string $whenSubject;		// when first submitted
-	public ?int    $subjectSessionId;	// who first submitted
-	public ?int    $subjectFlagCount;
-	public ?int    $subjectDupes;
-	public ?string $whenVerb;
-	public ?int    $verbSessionId;
-	public ?int    $verbFlagCount;
-	public ?int    $verbDupes;
-	public ?string $whenObject;
-	public ?int    $objectSessionId;
-	public ?int    $objectFlagCount;
-	public ?int    $objectDupes;
+	public ?int       $moderationId;
+	public ?string    $whenRequested;
+	public ?int       $requestorSessionId;
+	public ?string    $requestorName;
+	public ?int       $flagDupes;
+	public ?Moderated $pit;
+	public ?Moderated $sub;
+	public ?Moderated $vrb;
+	public ?Moderated $obj;
 }
 
 class SessionSummary
@@ -38,6 +37,7 @@ class SessionSummary
 	public ?bool   $isTest;
 	public ?string $ipAddress;
 	public ?string $userAgent;
+	public ?string $nickname;
 	public ?string $signature;
 	public ?string $whenCreated;
 	public ?string $whenLastUsed;
@@ -81,6 +81,7 @@ class HistoryEntry extends Pitch
 	public ?int         $moderationId;
 	public ?int         $acceptedBy;
 	public ?int         $rejectedBy;
+	public ?string      $rejectNickname;
 	public ?HistoryPart $p;
 	public ?HistoryPart $s;
 	public ?HistoryPart $v;
@@ -93,6 +94,7 @@ class HistoryEntry extends Pitch
 
 class SuspiciousSession {
 	public ?int    $sessionId;
+	public ?string $nickname;
 	public ?string $signature;
 	public ?string $whenLastUsed;
 	public ?int    $deletions;
@@ -108,8 +110,7 @@ class PitchGameAdminConnection extends PitchGameConnection
 		{
 			// Something has to be done about this monstrous query.  Would any part of it make a view useful to other queries?
 			$getRequests = new Selector($this->marie, $this->log, '', '
-			    WITH mrq AS ( SELECT m.moderation_id, m.session_id, m.when_submitted,
-			                         p.pitch_id, s.subject_id, v.verb_id, o.object_id,
+			    WITH mrq AS ( SELECT m.moderation_id, p.pitch_id, s.subject_id, v.verb_id, o.object_id,
 			                         min(ss.suggestion_id) AS subj_sugg, count(DISTINCT ss.suggestion_id) AS subj_dupe,
 			                         min(sv.suggestion_id) AS verb_sugg, count(DISTINCT sv.suggestion_id) AS verb_dupe,
 			                         min(so.suggestion_id) AS obj_sugg,  count(DISTINCT so.suggestion_id) AS obj_dupe
@@ -125,56 +126,67 @@ class PitchGameAdminConnection extends PitchGameConnection
 			                         suggestions ss ON s.subject_id = ss.subject_id LEFT JOIN
 			                         suggestions sv ON v.verb_id    = sv.verb_id    LEFT JOIN
 			                         suggestions so ON o.object_id  = so.object_id
-			                   GROUP BY m.moderation_id, m.session_id, m.when_submitted, p.pitch_id, s.subject_id, v.verb_id, o.object_id ),
+			                   GROUP BY m.moderation_id, p.pitch_id, s.subject_id, v.verb_id, o.object_id ),
 			         -- this flattens multiple complaints about the same word or pitch, but is not able to flatten cases where
 			         -- one complaint mentions a single word and another mentions the same word along with one or two others:
-			         muq as ( SELECT pitch_id, session_id, when_submitted, subject_id, verb_id, object_id,
+			         muq as ( SELECT pitch_id, subject_id, verb_id, object_id,
 			                         subj_sugg, verb_sugg, obj_sugg, subj_dupe, verb_dupe, obj_dupe,
 			                         count(DISTINCT moderation_id) AS flag_dupe,
 			                         max(moderation_id) AS last_req_id, min(moderation_id) AS first_req_id
 			                    FROM mrq WHERE COALESCE(pitch_id, subject_id, verb_id, object_id) IS NOT NULL
 			                   GROUP BY pitch_id, subject_id, verb_id, object_id,
 			                            subj_sugg, verb_sugg, obj_sugg, subj_dupe, verb_dupe, obj_dupe ),
-			         ten as ( SELECT last_req_id AS moderation_id,
-			                         session_id, when_submitted, pitch_id, subject_id, verb_id, object_id,
+			         ten as ( SELECT last_req_id, pitch_id, subject_id, verb_id, object_id,
 			                         subj_sugg, verb_sugg, obj_sugg, subj_dupe, verb_dupe, obj_dupe, flag_dupe
 			                    FROM muq
 			                   ORDER BY last_req_id - first_req_id DESC, last_req_id DESC
 			                   LIMIT 10 )
-			    SELECT ten.moderation_id, ten.when_submitted, ten.session_id AS requestor_session_id, ten.flag_dupe,
+			    SELECT m.moderation_id, m.when_submitted, n.session_id AS req_session_id, n.nickname AS req_nickname, ten.flag_dupe,
 			           p.session_id AS pitch_session_id, ss.session_id AS subject_session_id,
 			           sv.session_id AS verb_session_id, so.session_id AS object_session_id,
+					   np.nickname AS pitch_name, ns.nickname AS subject_name, nv.nickname AS verb_name, no.nickname AS object_name,
 			           p.moderation_flag_ct AS pitch_flag_ct, s.moderation_flag_ct AS subj_flag_ct,
 			           v.moderation_flag_ct AS verb_flag_ct,  o.moderation_flag_ct AS obj_flag_ct,
 			           p.when_submitted AS when_pitch, ss.when_suggested AS when_subj,
 			           sv.when_suggested AS when_verb, so.when_suggested AS when_obj,
-			           p.pitch_id, p.title, p.pitch, p.signature, ten.subj_dupe, ten.verb_dupe, ten.obj_dupe,
+			           ten.subj_dupe, ten.verb_dupe, ten.obj_dupe, p.pitch_id, p.title, p.pitch, p.signature,
 			           -- ifnull(ps.subject_id, s.subject_id) AS subject_id, ifnull(ps.word, s.word) AS subject,
 			           -- ifnull(pv.verb_id,    v.verb_id)    AS verb_id,    ifnull(pv.word, v.word) AS verb,
 			           -- ifnull(po.object_id,  o.object_id)  AS object_id,  ifnull(po.word, o.word) AS object
 			           s.subject_id, s.word AS subject, v.verb_id, v.word AS verb, o.object_id, o.word AS object
-			      FROM ten LEFT JOIN
-			           pitches p   ON ten.pitch_id = p.pitch_id    LEFT JOIN
-			           -- subjects ps ON p.subject_id = ps.subject_id LEFT JOIN
-			           -- verbs pv    ON p.verb_id    = pv.verb_id    LEFT JOIN
-			           -- objects po  ON p.object_id  = po.object_id  LEFT JOIN
+			      FROM ten INNER JOIN
+				       moderations m ON ten.last_req_id = m.moderation_id INNER JOIN
+				       sessions n    ON m.session_id = n.session_id LEFT JOIN
+			           pitches p     ON ten.pitch_id = p.pitch_id   LEFT JOIN
+			           -- subjects ps ON p.subject_id = ps.subject_id  LEFT JOIN
+			           -- verbs pv    ON p.verb_id    = pv.verb_id     LEFT JOIN
+			           -- objects po  ON p.object_id  = po.object_id   LEFT JOIN
+					   sessions np ON p.session_id = np.session_id LEFT JOIN
 			           subjects s ON ten.subject_id = s.subject_id LEFT JOIN
 			           verbs v    ON ten.verb_id    = v.verb_id    LEFT JOIN
 			           objects o  ON ten.object_id  = o.object_id  LEFT JOIN
 			           suggestions ss ON ten.subj_sugg = ss.suggestion_id LEFT JOIN
+					   sessions ns    ON ss.session_id = ns.session_id    LEFT JOIN
 			           suggestions sv ON ten.verb_sugg = sv.suggestion_id LEFT JOIN
-			           suggestions so ON ten.obj_sugg  = so.suggestion_id');
+					   sessions nv    ON sv.session_id = nv.session_id    LEFT JOIN
+			           suggestions so ON ten.obj_sugg  = so.suggestion_id LEFT JOIN
+					   sessions no    ON so.session_id = no.session_id');
 
 			$getRequests->select();
 			$results = [];
 			do {
 				$rq = new ModerationRequest();
-				$gotten = $getRequests->getRow($rq->moderationId, $rq->whenRequested, $rq->requestorSessionId, $rq->flagDupes,
-				                               $rq->pitchSessionId, $rq->subjectSessionId, $rq->verbSessionId, $rq->objectSessionId,
-				                               $rq->pitchFlagCount, $rq->subjectFlagCount, $rq->verbFlagCount, $rq->objectFlagCount,
-				                               $rq->whenPitched, $rq->whenSubject, $rq->whenVerb, $rq->whenObject,
-				                               $rq->pitchId, $rq->title, $rq->pitch, $rq->signature,
-				                               $rq->subjectDupes, $rq->verbDupes, $rq->objectDupes,
+				$rq->pit = new Moderated();
+				$rq->sub = new Moderated();
+				$rq->vrb = new Moderated();
+				$rq->obj = new Moderated();
+				$gotten = $getRequests->getRow($rq->moderationId, $rq->whenRequested, $rq->requestorSessionId, $rq->requestorName, $rq->flagDupes,
+				                               $rq->pit->sessionId, $rq->sub->sessionId, $rq->vrb->sessionId, $rq->obj->sessionId,
+				                               $rq->pit->nickname,  $rq->sub->nickname,  $rq->vrb->nickname,  $rq->obj->nickname,
+				                               $rq->pit->flagCount, $rq->sub->flagCount, $rq->vrb->flagCount, $rq->obj->flagCount,
+				                               $rq->pit->when,      $rq->sub->when,      $rq->vrb->when,      $rq->obj->when,
+				                               /*pit->dupes null,*/ $rq->sub->dupes,     $rq->vrb->dupes,     $rq->obj->dupes,
+				                               /*inherited fields:*/ $rq->pitchId, $rq->title, $rq->pitch, $rq->signature,
 				                               $rq->subjectId, $rq->subject, $rq->verbId, $rq->verb, $rq->objectId, $rq->object);
 				if ($gotten)
 					$results[] = $rq;
@@ -193,7 +205,7 @@ class PitchGameAdminConnection extends PitchGameConnection
 		try
 		{
 			$getStats = new Selector($this->marie, $this->log, 'i', '
-			    WITH ses AS ( SELECT session_id, is_test, blocked_by, signature, ip_address, useragent, when_created, when_last_used,
+			    WITH ses AS ( SELECT session_id, is_test, blocked_by, nickname, signature, ip_address, useragent, when_created, when_last_used,
 			                         when_last_reviewed, cast(unix_timestamp(when_last_reviewed) AS double) AS when_last_reviewed_unix
 			                    FROM sessions s      -- later, add team stats
 			                   WHERE session_id = ? ),
@@ -219,7 +231,7 @@ class PitchGameAdminConnection extends PitchGameConnection
 			                         SUM(CASE WHEN rejected_by IS NULL THEN 0 ELSE 1 END) AS rejected_reqs_ct
 			                    FROM ses INNER JOIN 
 			                         moderations USING (session_id) )
-			    SELECT blocked_by, is_test, signature, ip_address, useragent, when_created, when_last_used, when_last_reviewed, when_last_reviewed_unix,
+			    SELECT blocked_by, is_test, nickname, signature, ip_address, useragent, when_created, when_last_used, when_last_reviewed, when_last_reviewed_unix,
 			           idea_ct, earliest_idea, latest_idea, word_shown_ct, word_flag_ct, word_deleted_ct, word_moderated_ct,
 			           pitch_ct, earliest_pitch, latest_pitch, pitch_shown_ct, pitch_flag_ct, pitch_deleted_ct, pitch_moderated_ct,
 			           total_reqs_ct, earliest_req, latest_req, accepted_reqs_ct, rejected_reqs_ct
@@ -228,7 +240,7 @@ class PitchGameAdminConnection extends PitchGameConnection
 			if ($getStats->select($sessionId))
 			{
 				$result = new SessionSummary();
-				if (!$getStats->getRow($result->blockedBy, $result->isTest, $result->signature, $result->ipAddress, $result->userAgent,
+				if (!$getStats->getRow($result->blockedBy, $result->isTest, $result->nickname, $result->signature, $result->ipAddress, $result->userAgent,
 				                       $result->whenCreated, $result->whenLastUsed, $result->whenLastReviewed, $result->whenLastReviewedUnixTime,
 				                       $result->ideasCount, $result->ideasEarliest, $result->ideasLatest, $result->wordsShownCount,
 				                       $result->wordsFlaggedCount, $result->wordsDeletedCount, $result->wordsModeratedCount,
@@ -260,7 +272,7 @@ class PitchGameAdminConnection extends PitchGameConnection
 			                         s.is_deleted AS s_is_deleted, v.is_deleted AS v_is_deleted, o.is_deleted AS o_is_deleted,
 			                         NULL AS pitch_id, NULL AS title, NULL AS pitch, NULL AS signature,
 			                         NULL AS p_shown_ct, NULL AS p_flag_ct, NULL AS p_mod_status, NULL AS p_is_deleted,
-			                         NULL AS moderation_id, NULL AS accepted_by, NULL AS rejected_by
+			                         NULL AS moderation_id, NULL AS accepted_by, NULL AS rejected_by, NULL AS rejected_name
 			                    FROM suggestions JOIN
 			                         subjects s USING (subject_id) JOIN
 			                         verbs v    USING (verb_id) JOIN
@@ -276,7 +288,7 @@ class PitchGameAdminConnection extends PitchGameConnection
 			                         pitch_id, title, pitch, signature,
 			                         shown_ct AS p_shown_ct, moderation_flag_ct AS p_flag_ct,
 			                         moderation_status AS p_mod_status, is_deleted AS p_is_deleted,
-			                         NULL AS moderation_id, NULL AS accepted_by, NULL AS rejected_by
+			                         NULL AS moderation_id, NULL AS accepted_by, NULL AS rejected_by, NULL AS rejected_name
 			                    FROM pitches WHERE session_id = ? ),
 			         mor AS ( SELECT m.when_submitted AS when_posted, cast(unix_timestamp(m.when_submitted) AS double) AS when_posted_unix,
 			                         NULL AS suggestion_id, s.subject_id, v.verb_id, o.object_id, s.word AS subject, v.word AS verb, o.word AS object,
@@ -285,15 +297,16 @@ class PitchGameAdminConnection extends PitchGameConnection
 			                         s.is_deleted AS s_is_deleted, v.is_deleted AS v_is_deleted, o.is_deleted AS o_is_deleted,
 			                         p.pitch_id, p.title, p.pitch, p.signature,
 			                         NULL AS p_shown_ct, NULL AS p_flag_ct, p.moderation_status AS p_mod_status, p.is_deleted AS p_is_deleted,
-			                         m.moderation_id, m.accepted_by, m.rejected_by
+			                         m.moderation_id, m.accepted_by, m.rejected_by, n.nickname AS rejected_name
 			                    FROM moderations m LEFT JOIN
-			                         pitches p  ON m.pitch_id   = p.pitch_id   LEFT JOIN
-			                         subjects s ON m.subject_id = s.subject_id LEFT JOIN
-			                         verbs v    ON m.verb_id    = v.verb_id    LEFT JOIN
-			                         objects o  ON m.object_id  = o.object_id
+ 			                         sessions n ON m.rejected_by = n.session_id LEFT JOIN
+			                         pitches p  ON m.pitch_id    = p.pitch_id   LEFT JOIN
+			                         subjects s ON m.subject_id  = s.subject_id LEFT JOIN
+			                         verbs v    ON m.verb_id     = v.verb_id    LEFT JOIN
+			                         objects o  ON m.object_id   = o.object_id
 			                   WHERE m.session_id = ? )
 			    SELECT * FROM pit UNION SELECT * FROM ide UNION SELECT * from mor
-			    ORDER BY when_posted DESC');
+			     ORDER BY when_posted DESC');
 
 			$getHistory->select($sessionId, $sessionId, $sessionId);
 			$results = [];
@@ -311,7 +324,7 @@ class PitchGameAdminConnection extends PitchGameConnection
 				                              $h->s->deleted, $h->v->deleted, $h->o->deleted,
 				                              $h->pitchId, $h->title, $h->pitch, $h->signature,
 				                              $h->p->shownCount, $h->p->flagCount, $h->p->modStatus, $h->p->deleted,
-				                              $h->moderationId, $h->acceptedBy, $h->rejectedBy);
+				                              $h->moderationId, $h->acceptedBy, $h->rejectedBy, $h->rejectNickname);
 				if ($gotten)
 					$results[] = $h;
 			} while ($gotten);
@@ -486,7 +499,7 @@ class PitchGameAdminConnection extends PitchGameConnection
 		try
 		{
 			$findUsers = new Selector($this->marie, $this->log, 'i', '
-			    WITH sesns AS ( SELECT session_id, signature, when_last_used, when_last_reviewed
+			    WITH sesns AS ( SELECT session_id, nickname, signature, when_last_used, when_last_reviewed
 				                  FROM sessions
 								 WHERE blocked_by IS NULL AND datediff(now(), when_last_used) <= ? ),
 			         words AS ( SELECT session_id, sum(s.is_deleted + v.is_deleted + o.is_deleted) AS word_deletions
@@ -501,7 +514,7 @@ class PitchGameAdminConnection extends PitchGameConnection
 					              FROM sesns INNER JOIN pitches USING (session_id)
 								 WHERE when_submitted >= ifnull(when_last_reviewed, DATE \'1901-01-01\')
 								 GROUP BY session_id )
-			    SELECT session_id, signature, when_last_used, ifnull(word_deletions, 0) + ifnull(pitch_deletions, 0) AS deletions
+			    SELECT session_id, nickname, signature, when_last_used, ifnull(word_deletions, 0) + ifnull(pitch_deletions, 0) AS deletions
                   FROM sesns LEFT JOIN
 				       words USING (session_id) LEFT JOIN
 					   ptchs USING (session_id)
@@ -512,7 +525,7 @@ class PitchGameAdminConnection extends PitchGameConnection
 			$findUsers->select($ageInDays);
 			do {
 				$u = new SuspiciousSession();
-				$gotten = $findUsers->getRow($u->sessionId, $u->signature, $u->whenLastUsed, $u->deletions);
+				$gotten = $findUsers->getRow($u->sessionId, $u->nickname, $u->signature, $u->whenLastUsed, $u->deletions);
 				if ($gotten)
 					$results[] = $u;
 			} while ($gotten);

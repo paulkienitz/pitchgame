@@ -1,5 +1,5 @@
 /* PENDING CHANGES:
-Would it simplify anything to move flag count, mod status, and deleted to child table?
+Would it simplify anything to move flag count, mod status, and deleted to child table, reference null if no moderation?
 Date fields for moderation actions?
 */
 
@@ -20,10 +20,12 @@ CREATE TABLE pitchgame.subjects (
   moderation_status   VARCHAR(10)   DEFAULT NULL,
   is_deleted          BOOLEAN       NOT NULL DEFAULT 0,
   is_private          BOOLEAN       NOT NULL DEFAULT 0,
+  participation_id    INT           DEFAULT NULL,
 
   PRIMARY KEY            (subject_id),
-  UNIQUE KEY word        (word),
-  KEY last_shown         (last_shown)
+  UNIQUE KEY word        (word, participation_id),
+  KEY last_shown         (last_shown),
+  CONSTRAINT subject_participation FOREIGN KEY (participation_id) REFERENCES participations (participation_id)
 );
 
 CREATE TABLE pitchgame.verbs (
@@ -35,10 +37,12 @@ CREATE TABLE pitchgame.verbs (
   moderation_status   VARCHAR(10)   DEFAULT NULL,
   is_deleted          BOOLEAN       NOT NULL DEFAULT 0,
   is_private          BOOLEAN       NOT NULL DEFAULT 0,
+  participation_id    INT           DEFAULT NULL,
 
   PRIMARY KEY            (verb_id),
-  UNIQUE KEY word        (word),
-  KEY last_shown         (last_shown)
+  UNIQUE KEY word        (word, participation_id),
+  KEY last_shown         (last_shown),
+  CONSTRAINT verb_participation FOREIGN KEY (participation_id) REFERENCES participations (participation_id)
 );
 
 CREATE TABLE pitchgame.objects (
@@ -50,10 +54,32 @@ CREATE TABLE pitchgame.objects (
   moderation_status   VARCHAR(10)   DEFAULT NULL,
   is_deleted          BOOLEAN       NOT NULL DEFAULT 0,
   is_private          BOOLEAN       NOT NULL DEFAULT 0,
+  participation_id    INT           DEFAULT NULL,
 
   PRIMARY KEY            (object_id),
-  UNIQUE KEY word        (word),
-  KEY last_shown         (last_shown)
+  UNIQUE KEY word        (word, participation_id),
+  KEY last_shown         (last_shown),
+  CONSTRAINT object_participation FOREIGN KEY (participation_id) REFERENCES participations (participation_id)
+);
+
+CREATE TABLE pitchgame.suggestions (
+  suggestion_id       INT           NOT NULL AUTO_INCREMENT,
+  session_id          INT           NOT NULL,
+  subject_id          INT           NOT NULL,
+  verb_id             INT           NOT NULL,
+  object_id           INT           NOT NULL,
+  when_suggested      DATETIME      NOT NULL DEFAULT current_timestamp(),
+
+  PRIMARY KEY            (suggestion_id),
+  UNIQUE KEY no_dupes    (session_id, subject_id, verb_id, object_id)
+  KEY suggestion_session (session_id),
+  KEY suggestion_subject (subject_id),
+  KEY suggestion_verb    (verb_id),
+  KEY suggestion_object  (object_id),
+  CONSTRAINT suggestion_session        FOREIGN KEY (session_id)  REFERENCES sessions (session_id),
+  CONSTRAINT suggestion_subject        FOREIGN KEY (subject_id)  REFERENCES subjects (subject_id),
+  CONSTRAINT suggestion_verb           FOREIGN KEY (verb_id)     REFERENCES verbs (verb_id),
+  CONSTRAINT suggestion_object         FOREIGN KEY (object_id)   REFERENCES objects (object_id)
 );
 
 CREATE TABLE pitchgame.pitches (
@@ -72,6 +98,7 @@ CREATE TABLE pitchgame.pitches (
   moderation_status   VARCHAR(10)   DEFAULT NULL,
   is_deleted          BOOLEAN       NOT NULL DEFAULT 0,
   is_private          BOOLEAN       NOT NULL DEFAULT 0,
+  participation_id    INT           DEFAULT NULL,
 
   PRIMARY KEY            (pitch_id),
   UNIQUE KEY no_dupes    (session_id, subject_id, verb_id, object_id)
@@ -80,14 +107,32 @@ CREATE TABLE pitchgame.pitches (
   KEY pitch_subject      (subject_id),
   KEY pitch_verb         (verb_id),
   KEY pitch_object       (object_id),
-  CONSTRAINT pitch_session FOREIGN KEY (session_id) REFERENCES objects (session_id),
-  CONSTRAINT pitch_subject FOREIGN KEY (subject_id) REFERENCES subjects (subject_id),
-  CONSTRAINT pitch_verb    FOREIGN KEY (verb_id)    REFERENCES verbs (verb_id),
-  CONSTRAINT pitch_object  FOREIGN KEY (object_id)  REFERENCES objects (object_id)
+  CONSTRAINT pitch_session       FOREIGN KEY (session_id)       REFERENCES objects (session_id),
+  CONSTRAINT pitch_subject       FOREIGN KEY (subject_id)       REFERENCES subjects (subject_id),
+  CONSTRAINT pitch_verb          FOREIGN KEY (verb_id)          REFERENCES verbs (verb_id),
+  CONSTRAINT pitch_object        FOREIGN KEY (object_id)        REFERENCES objects (object_id),
+  CONSTRAINT pitch_participation FOREIGN KEY (participation_id) REFERENCES participations (participation_id)
+);
+
+CREATE TABLE pitchgame.ratings (
+  rating_id           INT           NOT NULL AUTO_INCREMENT,
+  session_id          INT           NOT NULL,
+  pitch_id            INT           NOT NULL,
+  rating              TINYINT(2)    NOT NULL COMMENT '1 to 4, and -1 means mark as spam',
+  when_rated          DATETIME      NOT NULL DEFAULT current_timestamp(),
+
+  PRIMARY KEY            (rating_id),
+  UNIQUE KEY no_dupes    (pitch_id, session_id),
+  KEY rating_session     (session_id),
+  KEY rating_pitch       (pitch_id),
+  CONSTRAINT rating_session FOREIGN KEY (session_id) REFERENCES sessions (session_id),
+  CONSTRAINT rating_pitch   FOREIGN KEY (pitch_id)   REFERENCES pitches (pitch_id)
 );
 
 CREATE TABLE pitchgame.teams (
   team_id             INT           NOT NULL AUTO_INCREMENT,
+  current_round       INT           NOT NULL DEFAULT 0,
+  round_status        TINYINT       NOT NULL DEFAULT 0 COMMENT '0 = not started, 1 = some ideas, 2 = all ideas, 3 = some pitches, 4 = all pitches, done?',
   when_created        DATETIME      NOT NULL DEFAULT current_timestamp(),
   token               VARCHAR(40)   NOT NULL,     -- also add a secret token? or just hash the public one?
   use_ct              INT           NOT NULL DEFAULT 0,
@@ -119,51 +164,20 @@ CREATE TABLE pitchgame.sessions (
   CONSTRAINT session_block FOREIGN KEY (blocked_by) REFERENCES sessions (session_id)
 );
 
+-- participation_id should be in here rather than in the word tables, but we're using it there for a unique index
 CREATE TABLE pitchgame.participations (
+  participation_id    INT           NOT NULL AUTO_INCREMENT,
   session_id          INT           NOT NULL,
   team_id             INT           NOT NULL,
-  use_ct              INT           NOT NULL DEFAULT 0,
-  last_used           DATETIME      NOT NULL DEFAULT current_timestamp(),
+  which_round         INT           NOT NULL,
+  last_used           DATETIME      NOT NULL DEFAULT current_timestamp(),  -- drop this?
 
-  KEY part_session    (session_id),
-  KEY part_team       (team_id),
+  PRIMARY KEY           (participation_id),
+  UNIQUE KEY team_round (team_id, which_round)
+  KEY part_session      (session_id),
+  KEY part_team         (team_id),
   CONSTRAINT part_session FOREIGN KEY (session_id) REFERENCES sessions (session_id),
   CONSTRAINT part_team    FOREIGN KEY (team_id)    REFERENCES teams    (team_id)
-);
-
-CREATE TABLE pitchgame.ratings (
-  rating_id           INT           NOT NULL AUTO_INCREMENT,
-  session_id          INT           NOT NULL,
-  pitch_id            INT           NOT NULL,
-  rating              TINYINT(2)    NOT NULL COMMENT '1 to 4, and -1 means mark as spam',
-  when_rated          DATETIME      NOT NULL DEFAULT current_timestamp(),
-
-  PRIMARY KEY            (rating_id),
-  UNIQUE KEY no_dupes    (pitch_id, session_id),
-  KEY rating_session     (session_id),
-  KEY rating_pitch       (pitch_id),
-  CONSTRAINT rating_session FOREIGN KEY (session_id) REFERENCES sessions (session_id),
-  CONSTRAINT rating_pitch   FOREIGN KEY (pitch_id)   REFERENCES pitches (pitch_id)
-);
-
-CREATE TABLE pitchgame.suggestions (
-  suggestion_id       INT           NOT NULL AUTO_INCREMENT,
-  session_id          INT           NOT NULL,
-  subject_id          INT           NOT NULL,
-  verb_id             INT           NOT NULL,
-  object_id           INT           NOT NULL,
-  when_suggested      DATETIME      NOT NULL DEFAULT current_timestamp(),
-
-  PRIMARY KEY            (suggestion_id),
-  UNIQUE KEY no_dupes    (session_id, subject_id, verb_id, object_id)
-  KEY suggestion_session (session_id),
-  KEY suggestion_subject (subject_id),
-  KEY suggestion_verb    (verb_id),
-  KEY suggestion_object  (object_id),
-  CONSTRAINT suggestion_session        FOREIGN KEY (session_id)  REFERENCES sessions (session_id),
-  CONSTRAINT suggestion_subject        FOREIGN KEY (subject_id)  REFERENCES subjects (subject_id),
-  CONSTRAINT suggestion_verb           FOREIGN KEY (verb_id)     REFERENCES verbs (verb_id),
-  CONSTRAINT suggestion_object         FOREIGN KEY (object_id)   REFERENCES objects (object_id)
 );
 
 CREATE TABLE pitchgame.moderations (

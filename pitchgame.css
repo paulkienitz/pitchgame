@@ -130,7 +130,7 @@ form p:last-child {
 	margin-right: 0;
 }
 .narrowgowides input {
-	width: 13em;
+	width: 11em;
 }
 @media screen and (max-width: 57em) {
 	.narrowgowides label {

@@ -3,43 +3,52 @@
 // This page contains all views for the gameplay loop seen by regular players.
 
 // TODO: make everything use more color, maybe some fancy fonts
-//       rejected moderation appeals should qualify user for history listory
-//       team play!  need new session handling, challenge, and review queries... privacy option
-//       delayed team play needs email and/or text notification
+//       MOVE CREDENTIALS to some kind of config, preferably in parent of html directory
+//       team play!  need new session handling, challenge, and review queries...
+//       delayed team play needs email and/or text notification... return visit must go to correct phase
 //       real-time team play needs status display with push updates... chat window?  scheduled future invite?
 //       support sso identity, or simple password if that's too hard?
 //       history of own pitches? (incentive for login)
-//       session history: add field for last reviewed by, null for new records
+//       session history: add field for last reviewed by, null for new records?
 //
-// BUGS: "with pits" query for reviews or faves are intermittently slow... argh it's not the query itself?
-//       Pronounce Judgment button can misdirect to last seen history page
+// BUGS: "with pits" query for reviews or faves are intermittently slow, but still test as fast
+//       history-within-history fails
 //
-// TEST: 
+// TEST: Pronounce Judgment should never misdirect to history
 //
 // IDEA: banner text curved cinemascope style via svg?
 //       purge should remove pending flags?
+//       suspicious users query: add fresh rejections
 //       ...maybe a link to see other pitches by the same author?  only if signature used?
-//       blocked session check could look for same IP address in recent days?  nah, ip6 ones change daily?
-//       maybe instead just a page to search for IP matches?
+//       session history should search for IP matches
 //       view history of accept, reject, ban, and bulk delete by other admins? super-admin page for this?
-//       make everyone give a name even if no password?
-//       security level set in .ini, from anonymous to named to recaptchad to sso identified to nobody new?
 
 require 'pitchdata.php';
 require 'common.php';
 
-$pagestate = 0;		// 0 = prompt for words, 1 = prompt for pitch, 2 = rate pitches, 3 = old faves, 4/5 = thanks and restart, 6 = mark bad words
+define('ASK3_COLD', 0);
+define('PITCH',     1);
+define('REVIEW',    2);
+define('FAVES',     3);
+define('ASK3_WARM', 4);
+define('ASK3_RVWD', 5);
+define('BADWORD',   6);
+define('ASKNAME',   7);
+define('ASK3_NAMD', 8);
+
+$pagestate = ASK3_COLD;		// one of the constants above
 
 $con = new PitchGameConnection();		// defined in pitchdata.php
 $submissionId = null;
 
 $validationFailed = false;
 $databaseFailed = !$con->isReady();
+$team = false;
 $initialSubject = '';
 $initialVerb = '';
 $initialObject = '';
 $idea = '';
-$ideaWordCount;
+$ideaWordCount = 0;
 $challengeSummary = '';
 $title = '';
 $pitch = '';
@@ -54,10 +63,8 @@ $pitchesToReview = [];			// array of Pitch structures defined in pitchdata.php
 if (!$databaseFailed)
 {
 	$databaseFailed = !connectToSession($con);
-	if (isset($_GET['team']))
-	{
-		$con->joinTeam($_GET['team']);
-	}
+	if (!$databaseFailed && isset($_GET['team']))
+		$team = $con->joinTeam($_GET['team']);
 }
 else
 	$con->lastError = "Database connection failed - $con->lastError";
@@ -77,43 +84,45 @@ if (isset($_POST['g-recaptcha-response']))
 
 if (isset($_POST['formtype']) && !$databaseFailed)		// extract form values, validate, and update
 {
-	if ($_POST['formtype'] == 'initialwords')			// pagestate 0, 4, or 5 form submitted
+	if ($_POST['formtype'] == 'initialwords')			// ASK3_* form submitted
 	{
 		$seed           = (int) $_POST['seed'];
+		$variant        = (int) $_POST['variant'];
 		$initialSubject = despace($_POST['subject']);
 		$initialVerb    = despace($_POST['verb']);
 		$initialObject  = despace($_POST['object']);
 		$validationFailed = !$initialSubject || !$initialVerb || !$initialObject;
 		if (!$validationFailed && !$con->needsCaptcha)
 		{
-			if ($con->addWords($initialSubject, $initialVerb, $initialObject))
+			if ($con->addWords($initialSubject, $initialVerb, $initialObject))  // no external difference for team play
 				$challenge = $con->getChallenge($seed);
 			$databaseFailed = !$challenge;
 			$idea = despace("$initialSubject $initialVerb $initialObject");		// for display
 			$ideaWordCount = substr_count($idea, ' ') + 1;
 			$challengeSummary = despace("$challenge->subject $challenge->verb $challenge->object");
-			$signature = trim($con->defaultSignature);
+			$signature = trim($con->defaultSignature ?: $con->nickname);
 		}
-		$pagestate = $validationFailed || $con->needsCaptcha ? 0 : 1;
+		// XXX need to preserve prior ask3 state:
+		$pagestate = $validationFailed || $con->needsCaptcha ? $variant : PITCH;
 	}
-	else if ($_POST['formtype'] == 'pitch')				// pagestate 1 form submitted
+	else if ($_POST['formtype'] == 'pitch')				// PITCH form submitted
 	{
-		$idea          = despace($_POST['idea']);
-		$challenge     = unserialize($_POST['challenge']);
-		$seed          = (int) $_POST['seed'];
-		$title         = despace($_POST['title']);
-		$pitch         = trim($_POST['pitch']);
-		$signature     = trim($_POST['signature']);
-		$setDefaultSig = !!$_POST['defsig'];
+		$idea             = despace($_POST['idea']);
+		$challenge        = unserialize($_POST['challenge']);
+		$seed             = (int) $_POST['seed'];
+		$title            = despace($_POST['title']);
+		$pitch            = trim($_POST['pitch']);
+		$signature        = trim($_POST['signature']);
+		$setDefaultSig    = !!$_POST['defsig'];
 		$ideaWordCount    = substr_count($idea, ' ') + 1;
 		$challengeSummary = despace("$challenge->subject $challenge->verb $challenge->object");
 		$validationFailed = (!$title || !$pitch) && $seed;
-		if (!$seed)
+		if (!$seed)           // re-randomize
 		{
 			$seed = rand(1000000, 2000000000);
 			$challenge = $con->getChallenge($seed);
 			$challengeSummary = despace("$challenge->subject $challenge->verb $challenge->object");
-			$pagestate = 1;
+			$pagestate = PITCH;
 		}
 		else if (!$validationFailed)
 		{
@@ -122,38 +131,38 @@ if (isset($_POST['formtype']) && !$databaseFailed)		// extract form values, vali
 			{
 				$pitchesToReview = $con->getPitchesToReview($seed);
 				if ($pitchesToReview && count($pitchesToReview))
-					$pagestate = 2;
+					$pagestate = REVIEW;
 				else
 				{
 					$oldFavoritePitches = $con->getOldFavoritePitches($seed);
 					if ($oldFavoritePitches && count($oldFavoritePitches))
-						$pagestate = 3;
+						$pagestate = FAVES;
 					else
 						$databaseFailed = true;
 				}
 			}
 		}
 		else
-			$pagestate = 1;
+			$pagestate = PITCH;
 	}
-	else if ($_POST['formtype'] == 'moderate')			// pagestate 1 bad word link clicked
+	else if ($_POST['formtype'] == 'moderate')			// PITCH bad word link clicked
 	{
-		$idea          = despace($_POST['idea']);
-		$challenge     = unserialize($_POST['challenge']);
-		$title         = despace($_POST['title']);
-		$pitch         = trim($_POST['pitch']);
-		$signature     = trim($_POST['signature']);
-		$seed          = (int) $_POST['seed'];
-		$pagestate = 6;
+		$idea      = despace($_POST['idea']);
+		$challenge = unserialize($_POST['challenge']);
+		$title     = despace($_POST['title']);
+		$pitch     = trim($_POST['pitch']);
+		$signature = trim($_POST['signature']);
+		$seed      = (int) $_POST['seed'];
+		$pagestate = BADWORD;
 	}
-	else if ($_POST['formtype'] == 'review')			// pagestate 2 form submitted
+	else if ($_POST['formtype'] == 'review')			// REVIEW form submitted
 	{
 		$seed = (int) $_POST['seed'];
-		if (!$seed)
+		if (!$seed)       // re-randomize
 		{
 			$seed = rand(1000000, 2000000000);
 			$pitchesToReview = $con->getPitchesToReview($seed);
-			$pagestate = 2;
+			$pagestate = REVIEW;
 		}
 		else
 		{
@@ -169,14 +178,14 @@ if (isset($_POST['formtype']) && !$databaseFailed)		// extract form values, vali
 						$databaseFailed = true;
 			}
 			if (!$databaseFailed)
-				$pagestate = $anyRated ? 5 : 4;
+				$pagestate = $anyRated ? ASK3_RVWD : ASK3_WARM;
 		}
 	}
-	else if ($_POST['formtype'] == 'favorites')			// pagestate 3 form submitted
+	else if ($_POST['formtype'] == 'favorites')			// FAVES form submitted
 	{
-		$pagestate = 4;
+		$pagestate = ASK3_WARM;
 	}
-	else if ($_POST['formtype'] == 'reportbad')			// pagestate 6 form submitted
+	else if ($_POST['formtype'] == 'reportbad')			// BADWORD form submitted
 	{
 		$idea          = despace($_POST['idea']);
 		$challenge     = unserialize($_POST['challenge']);
@@ -197,9 +206,19 @@ if (isset($_POST['formtype']) && !$databaseFailed)		// extract form values, vali
 				$challenge = $tc;
 		}
 		$challengeSummary = despace("$challenge->subject $challenge->verb $challenge->object");
-		$pagestate = 1;
+		$pagestate = PITCH;
+	}
+	else if ($_POST['formtype'] == 'name')				// GETNAME firm submitted
+	{
+		$nickname = trim($_POST['name']);
+		$validationFailed = !$nickname;
+		if (!$validationFailed)
+			$databaseFailed = !$con->setNickname($nickname);
+		$pagestate = $validationFailed ? ASKNAME : ASK3_NAMD;
 	}
 }
+if (($team || PitchGameConnection::REQUIRE_NICKNAME) && !$con->nickname)
+	$pagestate = ASKNAME;
 ?>
 <html>
 <head>
@@ -221,6 +240,8 @@ if (isset($_POST['formtype']) && !$databaseFailed)		// extract form values, vali
 
 <body>
 
+<?php if (!$databaseFailed && ($pagestate == ASK3_COLD || $pagestate == ASKNAME)) { ?>
+
 <div class=plop id=howtoplay>
 	<div class=backer></div>
 	<aside>
@@ -230,6 +251,8 @@ if (isset($_POST['formtype']) && !$databaseFailed)		// extract form values, vali
 
 	</aside>
 </div>
+
+<?php } ?>
 
 
 <main>
@@ -251,11 +274,11 @@ if (isset($_POST['formtype']) && !$databaseFailed)		// extract form values, vali
 
 	<p>We’re sorry, but our moderators have blocked you from further participation in the game.</p>
 
-<?php } else if ($pagestate == 0 || $pagestate == 4 || $pagestate == 5) { ?>
+<?php } else if ($pagestate == ASK3_COLD || $pagestate == ASK3_WARM || $pagestate == ASK3_RVWD || $pagestate == ASK3_NAMD) { ?>
 
 	<p>
 
-	<?php if ($pagestate == 0) { ?>
+	<?php if ($pagestate == ASK3_COLD) { ?>
 
 	This is a game in which you are given a three word story idea, in the form of
 	a short sentence with a verb in the middle, like “man bites dog” or “Martians
@@ -269,9 +292,15 @@ if (isset($_POST['formtype']) && !$databaseFailed)		// extract form values, vali
 	But before you get your three words, you must supply three words for other
 	people to use.&ensp;Please give us a noun, a verb, and another noun:
 
+	<?php } else if ($pagestate == ASK3_NAMD) { ?>
+
+	Okay, we’re ready to play!&ensp;To get your three word idea, you have to
+	first supply three words for <?=$team ? 'your friends' : 'other people'?>
+	to use.&ensp;Please give us a noun, a verb, and another noun:
+
 	<?php } else { ?>
 
-	<i>Thank you for <?=($pagestate == 5 ? "rating" : "reading")?> some of the
+	<i>Thank you for <?=($pagestate == ASK3_RVWD ? "rating" : "reading")?> some of the
 	submissions of your fellow players!</i>&ensp;How about playing another round?
 
 	<?php } ?>
@@ -279,6 +308,7 @@ if (isset($_POST['formtype']) && !$databaseFailed)		// extract form values, vali
 	</p>
 	<form method="POST" class=fields>
 		<input type=hidden name=formtype value="initialwords" />
+		<input type=hidden name=variant value='<?=$pagestate?>' />
 		<input type=hidden name=seed value="<?=rand(1000000, 2000000000)?>" />
 		<div class=narrowgowides>
 			<label for=subject>Noun:</label>
@@ -297,7 +327,7 @@ if (isset($_POST['formtype']) && !$databaseFailed)		// extract form values, vali
 		<p class="g-recaptcha" data-tabindex=4 data-callback="captchaSatisfied"
 		   data-sitekey="<?=PitchGameConnection::CAPTCHA_SITE_KEY?>"></p>
 		<?php if (isset($_POST['g-recaptcha-response'])) { ?>
-		<div class=validation>We’re sorry, that captcha response wasn’t valid.</div>
+		<div class=validation>We’re sorry, that captcha response wasn’t successful.</div>
 		<?php } ?>
 		<p>
 			<button tabindex=5 disabled id=submitter>Submit Words so I can Make My Pitch</button>
@@ -309,7 +339,7 @@ if (isset($_POST['formtype']) && !$databaseFailed)		// extract form values, vali
 	<?php } ?>
 	</form>
 
-<?php } else if ($pagestate == 1) { ?>
+<?php } else if ($pagestate == PITCH) { ?>
 
 	<p>
 
@@ -357,7 +387,7 @@ if (isset($_POST['formtype']) && !$databaseFailed)		// extract form values, vali
 		</p>
 	</form>
 
-<?php } else if ($pagestate == 2) { ?>
+<?php } else if ($pagestate == REVIEW) { ?>
 
 	<p>
 
@@ -396,7 +426,7 @@ if (isset($_POST['formtype']) && !$databaseFailed)		// extract form values, vali
 		<button>Submit My Ratings and Play Another Round</button>
 	</form>
 
-<?php } else if ($pagestate == 3) { ?>
+<?php } else if ($pagestate == FAVES) { ?>
 
 	<p>
 
@@ -432,7 +462,7 @@ if (isset($_POST['formtype']) && !$databaseFailed)		// extract form values, vali
 
 	</form>
 
-<?php } else if ($pagestate == 6) { ?>
+<?php } else if ($pagestate == BADWORD) { ?>
 
 	<p>
 
@@ -449,8 +479,8 @@ if (isset($_POST['formtype']) && !$databaseFailed)		// extract form values, vali
 	“buy DogeCoin now!”), if it’s an attempted hack
 	(“&lt;script src='http://unknown.site/xxx.js'&gt;&lt;script&gt;”,
 	“Football'; DROP TABLE pitch_verb;”), if it’s not English and wouldn’t be
-	recognized by English speakers (“Mantergeistmännlichkeit”, “新代载人飞船”), or
-	if it’s hate propaganda or promotes crime.
+	recognized by English speakers (“Mantergeistmännlichkeit”, “新代载人飞船”),
+	or if it’s hate propaganda or promotes crime.
 
 	</p><p>
 
@@ -485,6 +515,66 @@ if (isset($_POST['formtype']) && !$databaseFailed)		// extract form values, vali
 		</p>
 	</form>
 
+<?php } else if ($pagestate == ASKNAME) { ?>
+
+	<p>
+	<?php if ($team) { ?>
+
+	You’ve been invited to a game with friends!&ensp;In this game, you are given
+	a three word story idea, in the form of a short sentence with a verb in the
+	middle, like “man bites dog” or “Martians invade Belgium”.&ensp;The words you
+	get are each supplied by one if your fellow players.&ensp;Your job is to pitch
+	a movie based on that idea — that is, to describe an unmade film in a paragraph
+	or two, and make it sound like something people would want to see.&ensp;For
+	further explanation, <a href='' id=showhints>click here</a>.
+
+	</p><p>
+
+	But first, we need a name for you, so your teammates know who’s who.
+
+	<?php } else { ?>
+
+	This is a game in which you are given a three word story idea, in the form of
+	a short sentence with a verb in the middle, like “man bites dog” or “Martians
+	invade Belgium”.&ensp;Your job is to pitch a movie based on that idea — that
+	is, to describe an unmade film in a paragraph or two, and make it sound like
+	something people would want to see.&ensp;For further explanation,
+	<a href='' id=showhints>click here</a>.
+
+	</p><p>
+
+	Since you’re new, please give us a name to call you.
+
+	<?php } ?>
+
+	</p>
+	<form method="POST">
+		<input type=hidden name=formtype value="name" />
+		<div class=narrowgowides>
+			<label for=subject>Name:</label>
+			<input type=text id=name name=name value='' maxlength=50 tabindex=1 />
+		</div>
+	<?php if ($validationFailed) { ?>
+		<div class=validation>
+			A name is required.
+		</div>
+	<?php } ?>
+	<?php if ($con->needsCaptcha) { ?>
+		<p class="g-recaptcha" data-tabindex=4 data-callback="captchaSatisfied"
+		   data-sitekey="<?=PitchGameConnection::CAPTCHA_SITE_KEY?>"></p>
+		<?php if (isset($_POST['g-recaptcha-response'])) { ?>
+		<div class=validation>We’re sorry, that captcha response wasn’t successful.</div>
+		<?php } ?>
+		<p>
+			<button tabindex=3 disabled id=submitter>Join the Game!</button>
+		</p>
+	<?php } else { ?>
+		<p>
+			<button tabindex=2>Join the Game!</button>
+		</p>
+	<?php } ?>
+	</form>
+
 <?php } ?>
 </main>
 
@@ -493,7 +583,7 @@ if (isset($_POST['formtype']) && !$databaseFailed)		// extract form values, vali
 	<a href='' id=randomize class=meta>randomize</a>
 </p>
 <?php }
-      if ($con->hasDebugAccess || true /**** XXX TEMPORARY */) { ?>
+      if ($con->hasDebugAccess) { ?>
 <p>
 	<a href='' id=showLog class=meta>show DB log</a>
 </p>

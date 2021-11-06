@@ -13,7 +13,8 @@ Second checkin is prerelease version 0.2, in which the game is close to complete
 It adds nicer cosmetics, a closeable popup for the instructions, the ability to reject spam words, and tracking of moderation requests.
 Some internal features, such as logging of database activity, have been improved.  Exceptions are recorded in the system's normal PHP error log.
 
-Third checkin is prerelease 0.3, which adds a moderators’ page for spam abatement.  Internally, added type hinting.
+Third checkin (and a little followup I'm not counting) is prerelease 0.3, which adds a moderators’ page for spam abatement.
+Internally, started adding type hinting, which would increase over several checkins.
 
 Fourth checkin, prerelease 0.4, added no significant features but checked a lot of small updates off of the todo list.
 
@@ -21,6 +22,9 @@ Fifth checkin, prerelease 0.5, adds moderator review of a user's full history, w
 
 Sixth through ninth checkins add improved moderator ability to review user histories and recaptcha support, plus fixes and refactors.
 I'm moving to a finer grained checkin schedule now and not using prerelease numbers.
+
+I'll call it prerelease 0.6 at the point where I started adding team features.
+None of them are ready to use yet, but one thing it does add is a prompt to make new players give a name, which is mandatory in team mode and can be required in non-team mode by setting a constant.
 
 Yet to be added are more cosmetics, proper login (maybe including SSO), and the team play feature.
 

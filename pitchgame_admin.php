@@ -72,22 +72,22 @@ function showFlagDelMod(int $shown, int $flagged, int $deleted, int $moderated)
 	       warn($deleted, 'deleted') . ', ' . warn($moderated, 'moderated');
 }
 
-function slink(int $sessionId)
+function slink(int $sessionId, ?string $name)
 {
-	// XXX include recognizable name?
-	return "<a href='' id='session_$sessionId' class=slinky>user $sessionId</a>";
+	return $name ? "<a href='' id='session_$sessionId' class=slinky>" . enc($name) . " ($sessionId)</a>" :
+	       "<a href='' id='session_$sessionId' class=slinky>user $sessionId</a>";
 }
 
-function attribution(int $id, string $when, int $sessionId, int $flagCount)
+function attribution(int $id, string $when, int $sessionId, ?string $name, int $flagCount)
 {
-	return "$id, submitted " . enc($when) . ' by ' . slink($sessionId) .
+	return "$id, submitted " . enc($when) . ' by ' . slink($sessionId, $name) .
 	       ($flagCount > 1 ? ", has $flagCount flags" : '');
 }
 
-function ject(?int $rejectedBy, ?int $acceptedBy)
+function ject(?int $rejectedBy, ?int $acceptedBy, ?string $rejectNickname)
 {
-	return !$rejectedBy ? '' : (!$acceptedBy ? " — <span class=warn>REJECTED by user $rejectedBy</span>" :
-	       " — <span class=warn>PARTIALLY REJECTED by user $rejectedBy</span>");
+	return !$rejectedBy ? '' : (!$acceptedBy ? ' — <span class=warn>REJECTED by ' . slink($rejectedBy, $rejectNickname) . '</span>' :
+	       ' — <span class=warn>PARTIALLY REJECTED by ' . slink($rejectedBy, $rejectNickname) . '</span>');
 }
 
 function judgment(?string $modStatus, ?bool $deleted, string $prefix, string $postfix)
@@ -110,11 +110,11 @@ function histword(string $part, ?string $word, HistoryPart $hp)
 	       '<br/>' . enc($part) . ' <span class="lit' . ($hp->deleted ? ' deleted' : '') . '">“' . enc($word) . '”</span>' . histatus($hp);
 }
 
-function askWord(string $kind, int $id, string $when, int $sessionId, int $flagCount, int $dupes, string $word, int $moderationId)
+function askWord(string $kind, int $id, string $when, int $sessionId, ?string $name, int $flagCount, int $dupes, string $word, int $moderationId)
 {
 	$rat = "type=radio name='modreq_$kind[0]_$moderationId'";
 	$partOfSpeech = $kind == 'Verb' ? 'verb' : 'noun';
-	return '<div class=uppergap>— ' . enc($kind) . attribution($id, $when, $sessionId, $flagCount) .
+	return '<div class=uppergap>— ' . enc($kind) . ' ' . attribution($id, $when, $sessionId, $name, $flagCount) .
 	       ($dupes > 1 ? ", $dupes dupes" : '') .
 	       "</div>\n<div class=qq>Is <span class=lit>“" . enc($word) .
 	       "”</span> a valid $partOfSpeech?</div>\n<div>" .
@@ -342,14 +342,14 @@ if (!$databaseFailed)
 		<div class=fields>
 			<div>
 				#<?=$modreq->moderationId?> »&ensp;At <?=enc($modreq->whenRequested)?>,
-				<?=slink($modreq->requestorSessionId)?>
+				<?=slink($modreq->requestorSessionId, $modreq->requestorName)?>
 				<!--?=$modreq->flagDupes > 2 ? '(and ' . englishNumber($modreq->flagDupes - 1) . ' others)' :
 				  ($modreq->flagDupes > 1 ? '(and one other)' : '')?-->
 				flagged this:
 			</div>
 		<?php if ($modreq->pitchId) { ?>
 			<p>
-				— Pitch <?=attribution($modreq->pitchId, $modreq->whenPitched, $modreq->pitchSessionId, $modreq->pitchFlagCount)?>:
+				— Pitch <?=attribution($modreq->pitchId, $modreq->pit->when, $modreq->pit->sessionId, $modreq->pit->nickname, $modreq->pit->flagCount)?>:
 			</p>
 			<!-- div>
 				Idea: “<?=enc($modreq->subject)?> <?=enc($modreq->verb)?> <?=enc($modreq->object)?>”
@@ -371,19 +371,19 @@ if (!$databaseFailed)
 			</div>
 		<?php } else {
 			if ($modreq->subjectId)
-				echo askWord('Subject noun', $modreq->subjectId, $modreq->whenSubject, $modreq->subjectSessionId,
-				             $modreq->subjectFlagCount, $modreq->subjectDupes, $modreq->subject, $modreq->moderationId);
+				echo askWord('Subject noun', $modreq->subjectId, $modreq->sub->when, $modreq->sub->sessionId, $modreq->sub->nickname,
+				             $modreq->sub->flagCount, $modreq->sub->dupes, $modreq->subject, $modreq->moderationId);
 			if ($modreq->verbId)
-				echo askWord('Verb', $modreq->verbId, $modreq->whenVerb, $modreq->verbSessionId,
-				             $modreq->verbFlagCount, $modreq->verbDupes, $modreq->verb, $modreq->moderationId);
+				echo askWord('Verb', $modreq->verbId, $modreq->vrb->when, $modreq->vrb->sessionId, $modreq->vrb->nickname,
+				             $modreq->vrb->flagCount, $modreq->vrb->dupes, $modreq->verb, $modreq->moderationId);
 			if ($modreq->objectId)
-				echo askWord('Object noun', $modreq->objectId, $modreq->whenObject, $modreq->objectSessionId,
-				             $modreq->objectFlagCount, $modreq->objectDupes, $modreq->object, $modreq->moderationId);
+				echo askWord('Object noun', $modreq->objectId, $modreq->obj->when, $modreq->obj->sessionId, $modreq->obj->nickname,
+				             $modreq->obj->flagCount, $modreq->obj->dupes, $modreq->object, $modreq->moderationId);
 		} ?>
 		</div>
 	<?php } ?>
 		<p>
-			<button>Pronounce your Judgments</button>
+			<button id=pronounce>Pronounce your Judgments</button>
 		</p>
 	</form>
 
@@ -422,9 +422,12 @@ if (!$databaseFailed)
 
 		<?php foreach ($suspiciousSessions as $sus) { ?>
 			<p>
-				<?=$sus->deletions?> deletions, active <?=enc($sus->whenLastUsed)?>: <?=slink($sus->sessionId)?>
-				<?=$sus->signature ? '— “' . enc($sus->signature) . '”' : '' ?>
+				<?=$sus->deletions?> deletions, active <?=enc($sus->whenLastUsed)?>: <?=slink($sus->sessionId, $sus->nickname)?>
+				<?=$sus->signature && $sus->signature != $sus->nickname ? '— sig “' . enc($sus->signature) . '”' : '' ?>
 			</p>
+		<?php } ?>
+		<?php if (!count($suspiciousSessions)) { ?>
+			<p>None found — all have already been reviewed.</p>
 		<?php } ?>
 	</form>
 
@@ -446,7 +449,9 @@ if (!$databaseFailed)
 		<table class=userSummary>
 			<tr><td>Session status:</td>
 			    <td>#<?=$sessionId?> is <?=$userSummary->blockedBy ? "<span class=warn>BLOCKED by $userSummary->blockedBy</span>" : ($userSummary->isTest ? 'TESTER' : 'active')?>
-			        — <?=$userSummary->signature ? 'signature is “<span class=lit>' . enc($userSummary->signature) . '”</span>' : 'no default signature'?></td>
+			        — <?=$userSummary->signature && $userSummary->signature != $userSemmary->nickname
+			             ? 'signature <span class=lit>“' . enc($userSummary->signature) . ($userSummary->nickname ? '”</span>, name <span class=lit>“' . enc($userSummary->nickname) : '') . '”</span>'
+			             : ($userSummary->nickname ? '<span class=lit>“' . enc($userSummary->nickname) . '”</span>' : 'no name or signature')?></td>
 			</tr>
 			<tr><td>Dates active:</td>
 			    <td>created&ensp;<?=enc($userSummary->whenCreated)?>,&ensp;last used&ensp;<?=enc($userSummary->whenLastUsed)?></td>
@@ -512,13 +517,14 @@ if (!$databaseFailed)
 		<input type=hidden name=history value='<?=enc(serialize($history))?>' />
 		<?php foreach ($history as $h) { ?>
 			<?php if ($watermark && $watermark > $h->whenPostedUnixTime) { ?>
-			<p>— Reviewed by moderator <?=enc($userSummary->whenLastReviewed)?> —</p>
+		<p>— Reviewed by moderator <?=enc($userSummary->whenLastReviewed)?> —</p>
 			<?php $watermark = null; } ?>
-		<blockquote class="pitch <?=$h->deleted() ? ' dark' : ''?><?=$h->rejectedBy ? ' malev' : ($h->acceptedBy ? ' benev' : '')?>">
+		<blockquote class="pitch his <?=$h->deleted() ? ' dark' : ''?><?=$h->rejectedBy ? ' malev' : ($h->acceptedBy ? ' benev' : '')?>">
 			<?php if ($h->pitchId) { ?>
 				<?php if ($h->moderationId) { ?>
 				<div class=lowergap>
-					Flagged this pitch <?=$h->whenPosted . judgment($h->p->modStatus, $h->p->deleted, ' (', ')') . ject($h->rejectedBy, $h->acceptedBy)?>
+					Flagged this pitch <?=$h->whenPosted . judgment($h->p->modStatus, $h->p->deleted, ' (', ')') .
+					ject($h->rejectedBy, $h->acceptedBy, $h->rejectNickname)?>
 				</div>
 				<?php } else { ?>
 				<div class=lowergap>
@@ -535,7 +541,7 @@ if (!$databaseFailed)
 				<?php } ?>
 			<?php } else { ?>
 				<?php if ($h->moderationId) { ?>
-				<div>Flagged bad word <?=$h->whenPosted . ject($h->rejectedBy, $h->acceptedBy)?></div>
+				<div>Flagged bad word <?=$h->whenPosted . ject($h->rejectedBy, $h->acceptedBy, $h->rejectNickname)?></div>
 				<?php } else { ?>
 				<div>Submitted <?=$h->whenPosted?></div>
 				<?php } ?>
