@@ -5,7 +5,13 @@
 require 'pitchdata_admin.php';
 require 'common.php';
 
-$pagestate = 0;			// 0 = outstanding moderation requests, 1 = user summary, 2 = user history, 3 = just blocked, 4 = confirm purge
+define('PENDING',   0);
+define('POPUP',     1);
+define('HISTORY',   2);
+define('UNDOBLOCK', 3);
+define('PURGE',     4);
+
+$pagestate = PENDING;
 $con = new PitchGameAdminConnection();		// defined in pitchdata_admin.php
 
 $validationFailed = false;
@@ -22,28 +28,6 @@ $userSummary = null;
 $suspiciousSessions = null;
 $history = null;
 
-
-function describeBrowser(string $userAgent)
-{
-	// get_browser is not available on my PHP host, so let's recognize the main browsers only
-	if (preg_match('/MSIE \d+/', $userAgent))
-		$browser = 'IE (old)';
-	else if (preg_match('/Trident\/7/', $userAgent))
-		$browser = 'IE 11 or early Edge';
-	else if (preg_match('/ Firefox\/\S+$/', $userAgent))
-		$browser = 'Firefox';
-	else if (preg_match('/ Safari\/\S$/', $userAgent))
-		$browser = 'Safari';
-	else if (preg_match('/ Edg\w*\/\S+$/', $userAgent))
-		$browser = 'Edge';
-	else if (preg_match('/ Chrome\/.* Safari/', $userAgent))
-		$browser = 'Chrome';
-	else
-		$browser = 'unrecognized';
-	if ($browser != 'unrecognized' && preg_match('/Android|Kindle|iPad|iPod|iPhone|Mobile|Tablet/', $userAgent))
-		$browser .= ' Mobile';
-	return '<span class=browse title="' . enc($userAgent) . '">' . $browser . '</span>';
-}
 
 function warn(?int $number, string $description, ?string $descriptionSingular = null)
 {
@@ -74,8 +58,8 @@ function showFlagDelMod(int $shown, int $flagged, int $deleted, int $moderated)
 
 function slink(int $sessionId, ?string $name)
 {
-	return $name ? "<a href='' id='session_$sessionId' class=slinky>" . enc($name) . " ($sessionId)</a>" :
-	       "<a href='' id='session_$sessionId' class=slinky>user $sessionId</a>";
+	return $name ? "<a href='' id='session_$sessionId' class=slinky>" . enc($name) . " ($sessionId)</a>"
+	             : "<a href='' id='session_$sessionId' class=slinky>user $sessionId</a>";
 }
 
 function attribution(int $id, string $when, int $sessionId, ?string $name, int $flagCount)
@@ -86,8 +70,9 @@ function attribution(int $id, string $when, int $sessionId, ?string $name, int $
 
 function ject(?int $rejectedBy, ?int $acceptedBy, ?string $rejectNickname)
 {
-	return !$rejectedBy ? '' : (!$acceptedBy ? ' — <span class=warn>REJECTED by ' . slink($rejectedBy, $rejectNickname) . '</span>' :
-	       ' — <span class=warn>PARTIALLY REJECTED by ' . slink($rejectedBy, $rejectNickname) . '</span>');
+	$rl = slink($rejectedBy, $rejectNickname);
+	return !$rejectedBy ? '' : (!$acceptedBy ? " — <span class=warn>REJECTED by $rl</span>"
+	                                         : " — <span class=warn>PARTIALLY REJECTED by $rl</span>");
 }
 
 function judgment(?string $modStatus, ?bool $deleted, string $prefix, string $postfix)
@@ -99,9 +84,9 @@ function judgment(?string $modStatus, ?bool $deleted, string $prefix, string $po
 
 function histatus(HistoryPart $hp)
 {
-	return !is_numeric($hp->shownCount) ? judgment($hp->modStatus, $hp->deleted, '&ensp;(', ')') :
-	       " — $hp->shownCount " . ($hp->shownCount == 1 ? 'view, ' : 'views, ') .
-	       warn($hp->flagCount, 'flags', 'flag') . judgment($hp->modStatus, $hp->deleted, ' — ', '');
+	return !is_numeric($hp->shownCount) ? judgment($hp->modStatus, $hp->deleted, '&ensp;(', ')')
+	       : " — $hp->shownCount " . ($hp->shownCount == 1 ? 'view, ' : 'views, ') .
+	         warn($hp->flagCount, 'flags', 'flag') . judgment($hp->modStatus, $hp->deleted, ' — ', '');
 }
 
 function histword(string $part, ?string $word, HistoryPart $hp)
@@ -158,19 +143,19 @@ else if (isset($_POST['formtype']) && !$databaseFailed)		// extract form values,
 			else if ($judgmentP || $judgmentS || $judgmentV || $judgmentO)
 				$resolved++;
 		}
-		$pagestate = 0;
+		$pagestate = PENDING;
 		$moderationRequests = null;		// reload a fresh set
 	}
 	else if ($_POST['formtype'] == 'usualsuspects')
 	{
 		$suspiciousUserDays = (int) $_POST['daysold'] ?: 3;
-		$pagestate = 0;
+		$pagestate = PENDING;
 	}
 	else if ($_POST['formtype'] == 'history')
 	{
 		$sessionId = (int) $_POST['sessionid'];
 		$suspiciousUserDays = (int) $_POST['daysold'];
-		$pagestate = 2;
+		$pagestate = HISTORY;
 	}
 	else if ($_POST['formtype'] == 'judgeuser')
 	{
@@ -178,7 +163,7 @@ else if (isset($_POST['formtype']) && !$databaseFailed)		// extract form values,
 		$suspiciousUserDays = (int) $_POST['daysold'];
 		$disposal = $_POST['disposal'];
 		if ($disposal == 'purge')
-			$pagestate = 4;
+			$pagestate = PURGE;
 		else
 		{
 			$history = unserialize($_POST['history']);
@@ -204,12 +189,12 @@ else if (isset($_POST['formtype']) && !$databaseFailed)		// extract form values,
 			if ($disposal == 'block' && !$databaseFailed)
 			{
 				$databaseFailed = !$con->blockSession($sessionId, true);
-				$pagestate = 3;
+				$pagestate = UNDOBLOCK;
 			}
 			else
 			{
 				$databaseFailed = !$con->blockSession($sessionId, false);   // sets when_last_reviewed
-				$pagestate = 0;
+				$pagestate = PENDING;
 			}
 		}
 	}
@@ -220,7 +205,7 @@ else if (isset($_POST['formtype']) && !$databaseFailed)		// extract form values,
 		$action = $_POST['block'];
 		if ($action == 'undo')
 			$databaseFailed = !($undine = $con->blockSession($sessionId, false));
-		$pagestate = 0;
+		$pagestate = PENDING;
 	}
 	else if ($_POST['formtype'] == 'purging')
 	{
@@ -231,31 +216,31 @@ else if (isset($_POST['formtype']) && !$databaseFailed)		// extract form values,
 		{
 			$purgery = $con->purgeSession($sessionId);
 			$databaseFailed = !$purgery;
-			$pagestate = 0;
+			$pagestate = PENDING;
 		}
 		else
-			$pagestate = 2;
+			$pagestate = HISTORY;
 	}
 }
 // make sure each page view has its necessary data
 if (!$databaseFailed)
 {
-	if (($pagestate == 1 || $pagestate == 2 || $pagestate == 4) && !$userSummary)
+	if (($pagestate == POPUP || $pagestate == HISTORY || $pagestate == PURGE) && !$userSummary)
 	{
 		$userSummary = $con->sessionStats($sessionId);
 		$databaseFailed = !$userSummary;
 	}
-	if ($pagestate == 0 && !$moderationRequests)
+	if ($pagestate == PENDING && !$moderationRequests)
 	{
 		$moderationRequests = $con->getRecentModerationRequests();
 		$databaseFailed = !is_array($moderationRequests);
 	}
-	else if ($pagestate == 2 && !$history && !$databaseFailed)
+	else if ($pagestate == HISTORY && !$history && !$databaseFailed)
 	{
 		$history = $con->getSessionHistory($sessionId);
 		$databaseFailed = !is_array($history);
 	}
-	if ($pagestate == 0 && !$databaseFailed && !count($moderationRequests))
+	if ($pagestate == PENDING && !$databaseFailed && !count($moderationRequests))
 	{
 		$suspiciousSessions = $con->getSuspiciousSessions($suspiciousUserDays);
 		$databaseFailed = !is_array($suspiciousSessions);
@@ -292,7 +277,7 @@ if (!$databaseFailed)
 <h1>Movie Pitch Game Administration</h1>
 <p>
 	<a class=aftergap href='/pitchgame/'>Return to the game</a>
-	<?php if ($pagestate != 0) { ?>
+	<?php if ($pagestate != PENDING) { ?>
 	<a id=backToList href='/pitchgame/pitchgame_admin.php'>Return to moderation list</a>
 	<?php } ?>
 <p>
@@ -308,7 +293,7 @@ if (!$databaseFailed)
 	</p>
 	<div class=exceptional><?=nl2br(enc($con->lastError))?></div>
 
-<?php } else if ($pagestate == 0 && $moderationRequests && count($moderationRequests)) { ?>
+<?php } else if ($pagestate == PENDING && $moderationRequests && count($moderationRequests)) { ?>
 
 	<p>
 	<?php if ($resolved) { ?>
@@ -387,7 +372,7 @@ if (!$databaseFailed)
 		</p>
 	</form>
 
-<?php } else if ($pagestate == 0) { ?>
+<?php } else if ($pagestate == PENDING) { ?>
 
 	<?php if ($resolved) { ?>
 
@@ -431,13 +416,13 @@ if (!$databaseFailed)
 		<?php } ?>
 	</form>
 
-<?php } else if (($pagestate == 1 || $pagestate == 2) && !$userSummary) { ?>
+<?php } else if (($pagestate == POPUP || $pagestate == HISTORY) && !$userSummary) { ?>
 
 	<div id=userSummary>
 		<p>User <?=enc($_GET['sessionId'])?> not found.</p>   <!-- XXX add a hash to prevent enumeration? -->
 	</div>
 
-<?php } else if ($pagestate == 1 || $pagestate == 2) { ?>
+<?php } else if ($pagestate == POPUP || $pagestate == HISTORY) { ?>
 
 	<?php if ($pagestate == 1) { ?>
 	<form method="POST" action='pitchgame_admin.php'>
@@ -489,7 +474,7 @@ if (!$databaseFailed)
 			</tr>
 	<?php } ?>
 		</table>
-	<?php if ($pagestate == 1) { ?>
+	<?php if ($pagestate == POPUP) { ?>
 		<p>
 			<a href='' id=historicize>View full submission history</a>
 		</p>
@@ -497,7 +482,7 @@ if (!$databaseFailed)
 	      $watermark = $userSummary->whenLastReviewedUnixTime; ?>
 	</div>
 
-	<?php if ($pagestate == 2) { ?>
+	<?php if ($pagestate == HISTORY) { ?>
 	
 	<h2>History of user <?=$sessionId?>’s ideas and pitches:</h2>
 	<p>
@@ -512,7 +497,7 @@ if (!$databaseFailed)
 	</p>
 	<form method="POST" class=meta>
 		<input type=hidden name=formtype id=formtype value='judgeuser' />
-		<input type=hidden name=sessionid value='<?=$sessionId?>' />
+		<input type=hidden name=sessionid id=lastSessionId value='<?=$sessionId?>' />
 		<input type=hidden name=daysold value='<?=$suspiciousUserDays?>' />
 		<input type=hidden name=history value='<?=enc(serialize($history))?>' />
 		<?php foreach ($history as $h) { ?>
@@ -575,7 +560,7 @@ if (!$databaseFailed)
 	</form>
 	<?php } ?>
 
-<?php } else if ($pagestate == 3) { ?>
+<?php } else if ($pagestate == UNDOBLOCK) { ?>
 
 	<p>Thank you.&ensp;<?=$wordsFlagged?> words and <?=$pitchesFlagged?> pitches have been added to
 	the moderation list.&ensp;User <?=$sessionId?> is now blocked.</p>
@@ -587,7 +572,7 @@ if (!$databaseFailed)
 		<button name=block value=okay>OK, return to moderation list</button>
 	</form>
 
-<?php } else if ($pagestate == 4) { ?>
+<?php } else if ($pagestate == PURGE) { ?>
 
 	<p>Are you sure you want to purge everything submitted by user <?=$sessionId?>?&ensp;If you
 	confirm, all of the words and pitches listed on the previous page will be deleted, and

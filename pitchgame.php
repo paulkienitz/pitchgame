@@ -12,7 +12,6 @@
 //       session history: add field for last reviewed by, null for new records?
 //
 // BUGS: "with pits" query for reviews or faves are intermittently slow, but still test as fast
-//       history-within-history fails
 //
 // TEST: Pronounce Judgment should never misdirect to history
 //
@@ -25,6 +24,7 @@
 
 require 'pitchdata.php';
 require 'common.php';
+require 'configure.php';
 
 define('ASK3_COLD', 0);
 define('PITCH',     1);
@@ -71,7 +71,7 @@ else
 
 if (isset($_POST['g-recaptcha-response']))
 {
-	$captchaCheck = ['secret'   => PitchGameConnection::CAPTCHA_SECRET,
+	$captchaCheck = ['secret'   => CAPTCHA_SECRET,
 	                 'remoteip' => myIP(),
 	                 'response' => $_POST['g-recaptcha-response']];
 	$rawResponse = doPost('https://www.google.com/recaptcha/api/siteverify', $captchaCheck);
@@ -100,7 +100,7 @@ if (isset($_POST['formtype']) && !$databaseFailed)		// extract form values, vali
 			$idea = despace("$initialSubject $initialVerb $initialObject");		// for display
 			$ideaWordCount = substr_count($idea, ' ') + 1;
 			$challengeSummary = despace("$challenge->subject $challenge->verb $challenge->object");
-			$signature = trim($con->defaultSignature ?: $con->nickname);
+			$signature = trim($con->defaultSignature ?? $con->nickname);  // note that we fall back on null but not on blank
 		}
 		// XXX need to preserve prior ask3 state:
 		$pagestate = $validationFailed || $con->needsCaptcha ? $variant : PITCH;
@@ -217,7 +217,7 @@ if (isset($_POST['formtype']) && !$databaseFailed)		// extract form values, vali
 		$pagestate = $validationFailed ? ASKNAME : ASK3_NAMD;
 	}
 }
-if (($team || PitchGameConnection::REQUIRE_NICKNAME) && !$con->nickname)
+if (($team || REQUIRE_NAME) && !$con->nickname)
 	$pagestate = ASKNAME;
 ?>
 <html>
@@ -325,7 +325,7 @@ if (($team || PitchGameConnection::REQUIRE_NICKNAME) && !$con->nickname)
 	<?php } ?>
 	<?php if ($con->needsCaptcha) { ?>
 		<p class="g-recaptcha" data-tabindex=4 data-callback="captchaSatisfied"
-		   data-sitekey="<?=PitchGameConnection::CAPTCHA_SITE_KEY?>"></p>
+		   data-sitekey="<?=CAPTCHA_KEY?>"></p>
 		<?php if (isset($_POST['g-recaptcha-response'])) { ?>
 		<div class=validation>We’re sorry, that captcha response wasn’t successful.</div>
 		<?php } ?>
@@ -561,7 +561,7 @@ if (($team || PitchGameConnection::REQUIRE_NICKNAME) && !$con->nickname)
 	<?php } ?>
 	<?php if ($con->needsCaptcha) { ?>
 		<p class="g-recaptcha" data-tabindex=4 data-callback="captchaSatisfied"
-		   data-sitekey="<?=PitchGameConnection::CAPTCHA_SITE_KEY?>"></p>
+		   data-sitekey="<?=CAPTCHA_KEY?>"></p>
 		<?php if (isset($_POST['g-recaptcha-response'])) { ?>
 		<div class=validation>We’re sorry, that captcha response wasn’t successful.</div>
 		<?php } ?>

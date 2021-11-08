@@ -43,6 +43,28 @@ function connectToSession(PitchGameConnection &$con): bool
 	return true;
 }
 
+function describeBrowser(string $userAgent)
+{
+	// get_browser is not available on my PHP host, so let's recognize the main browsers only
+	if (preg_match('/MSIE \d+/', $userAgent))
+		$browser = 'IE (old)';
+	else if (preg_match('/Trident\/7/', $userAgent))
+		$browser = 'IE 11 or early Edge';
+	else if (preg_match('/ Firefox\/\S+$/', $userAgent))
+		$browser = 'Firefox';
+	else if (preg_match('/ Chrome\/.* Safari/', $userAgent))
+		$browser = 'Chrome';
+	else if (preg_match('/ Safari\/\S$/', $userAgent))
+		$browser = 'Safari';
+	else if (preg_match('/ Edg\w*\/\S+$/', $userAgent))
+		$browser = 'Edge';
+	else
+		$browser = 'unrecognized';
+	if ($browser != 'unrecognized' && preg_match('/Android|Kindle|iPad|iPod|iPhone|Mobile|Tablet/', $userAgent))
+		$browser .= ' Mobile';
+	return '<span class=browse title="' . enc($userAgent) . '">' . $browser . '</span>';
+}
+
 function doPost(string $url, array $args)
 {
 	$curly = curl_init($url);

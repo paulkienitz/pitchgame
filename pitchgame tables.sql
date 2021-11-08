@@ -1,10 +1,9 @@
-/* PENDING CHANGES:
+-- ==== Do not deploy this file to the website. ====  This is for initial setup of the mysql database.
+
+/* IDEAS:
 Would it simplify anything to move flag count, mod status, and deleted to child table, reference null if no moderation?
 Date fields for moderation actions?
 */
-
-
--- ==== Do not deploy this file to the website. ====  This is for initial setup of the mysql database.
 
 CREATE DATABASE pitchgame;
 ALTER DATABASE pitchgame DEFAULT CHARACTER SET utf8mb4 DEFAULT COLLATE utf8mb4_unicode_520_ci;
@@ -129,18 +128,6 @@ CREATE TABLE pitchgame.ratings (
   CONSTRAINT rating_pitch   FOREIGN KEY (pitch_id)   REFERENCES pitches (pitch_id)
 );
 
-CREATE TABLE pitchgame.teams (
-  team_id             INT           NOT NULL AUTO_INCREMENT,
-  current_round       INT           NOT NULL DEFAULT 0,
-  round_status        TINYINT       NOT NULL DEFAULT 0 COMMENT '0 = not started, 1 = some ideas, 2 = all ideas, 3 = some pitches, 4 = all pitches, done?',
-  when_created        DATETIME      NOT NULL DEFAULT current_timestamp(),
-  token               VARCHAR(40)   NOT NULL,     -- also add a secret token? or just hash the public one?
-  use_ct              INT           NOT NULL DEFAULT 0,
-  is_private          BOOLEAN       NOT NULL DEFAULT 0,
-
-  PRIMARY KEY            (team_id)
-);
-
 CREATE TABLE pitchgame.sessions (
   session_id          INT           NOT NULL AUTO_INCREMENT,
   when_created        DATETIME      NOT NULL DEFAULT current_timestamp(),
@@ -162,6 +149,18 @@ CREATE TABLE pitchgame.sessions (
   KEY when_last_used     (when_last_used),
   KEY cookie_token       (cookie_token),
   CONSTRAINT session_block FOREIGN KEY (blocked_by) REFERENCES sessions (session_id)
+);
+
+CREATE TABLE pitchgame.teams (
+  team_id             INT           NOT NULL AUTO_INCREMENT,
+  current_round       INT           NOT NULL DEFAULT 0,
+  round_status        TINYINT       NOT NULL DEFAULT 0 COMMENT '0 = not started, 1 = some ideas, 2 = all ideas, 3 = some pitches, 4 = all pitches, done?',
+  when_created        DATETIME      NOT NULL DEFAULT current_timestamp(),
+  token               VARCHAR(40)   NOT NULL,     -- also add a secret token? or just hash the public one?
+  use_ct              INT           NOT NULL DEFAULT 0,
+  is_private          BOOLEAN       NOT NULL DEFAULT 0,
+
+  PRIMARY KEY            (team_id)
 );
 
 -- participation_id should be in here rather than in the word tables, but we're using it there for a unique index
