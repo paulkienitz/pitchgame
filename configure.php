@@ -1,0 +1,13 @@
+<?php   // *** Be sure to configure your site access to forbid downloading this file. ***
+
+// credentials:
+define('DB_HOST',        'sample.host');     // usually 'localhost'
+define('DB_PASSWORD',    'sample!password');
+define('CAPTCHA_KEY',    'sample-recaptcha-site-key-xxxxxxxxxxxxxx');
+define('CAPTCHA_SECRET', 'sample-recaptcha-secret-key-zzzzzzzzzzzz');
+
+// preferences:
+define('SECURITY_LEVEL',  0);
+// SECURITY_LEVEL 0 = fully anonymous, 1 = new nonteam sessions must captcha, 2 = returning sessions must captcha, 3 = ...must SSO?
+define('REQUIRE_NAME',    false);
+?>
