@@ -2,6 +2,7 @@
 // This contains database methods used for gameplay but not those used for moderation.
 
 require 'sql.php';
+require 'configure.php';
 
 
 // objects returned by PitchGameConnection methods:
@@ -35,15 +36,17 @@ class RatedPitch extends Pitch
 	public ?int    $ratingCount;
 }
 
+class TeamMemberStatus
+{
+	public ?int    $sessionId;
+	public ?string $nickname;
+	public ?int    $suggestionId;
+	public ?int    $pitchId;
+	public ?int    $secondsAgo;
+}
 
 class PitchGameConnection
 {
-	// 0 = fully anonymous, 1 = new nonteam seasions must captcha, 2 = returning sessions must captcha, 3 = ...must SSO?
-	const SECURITY_LEVEL = 2;
-	const REQUIRE_NICKNAME = true;
-	const CAPTCHA_SITE_KEY = '6LeXlwYdAAAAAGrXImPQ0NpZUq86BYPwjTqCWnwE';
-	const CAPTCHA_SECRET = '6LeXlwYdAAAAAAxlSus2oofxJJdqvv531MsAwSTy';
-
 	protected mysqli    $marie;
 	protected bool      $preparedOK = false;
 	protected int       $sessionId = 0;
@@ -69,9 +72,9 @@ class PitchGameConnection
 		mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);		// throw exceptions rather than just setting marie->error
 		try
 		{
-			$this->marie = new mysqli(null, 'pitchgame', null, 'pitchgame');
-			$this->marie->set_charset('utf8mb4');
 			$this->log = new SqlLogger(true);
+			$this->marie = new mysqli(DB_HOST, 'pitchgame', DB_PASSWORD, 'pitchgame');
+			$this->marie->set_charset('utf8mb4');
 			$this->preparedOK = true;		// none of the preparing has actually been done... this is no longer very meaningful
 		}
 		catch (Throwable $ex)
@@ -116,7 +119,7 @@ class PitchGameConnection
 			$getSession->getRow($this->sessionId, $this->nickname, $this->defaultSignature, $blockedBy,
 			                    $this->passedCaptcha, $this->isTester, $this->hasDebugAccess, $minutesOld);
 			$this->isBlocked = !!$blockedBy;
-			$this->needsCaptcha = !$this->passedCaptcha && self::SECURITY_LEVEL == 2;
+			$this->needsCaptcha = !$this->passedCaptcha && SECURITY_LEVEL == 2;
 			if ($minutesOld >= 5)
 				$updateSession->update($ipAddress, $userAgent, $this->sessionId);
 			return !!$this->sessionId;
@@ -137,7 +140,7 @@ class PitchGameConnection
 			$getToken = new ScalarSelector($this->marie, $this->log, 'i',
 			    'SELECT cookie_token FROM sessions WHERE session_id = ?');
 			$this->sessionId = $addSession->insert($ipAddress, $userAgent);
-			$this->needsCaptcha = self::SECURITY_LEVEL == 1 || self::SECURITY_LEVEL == 2;
+			$this->needsCaptcha = SECURITY_LEVEL == 1 || SECURITY_LEVEL == 2;
 			return $getToken->select($this->sessionId);
 		}
 		catch (Throwable $ex)
@@ -217,7 +220,7 @@ class PitchGameConnection
 			// XXX     How do we tell when to start a new round??  This will require careful setup.
 			$getTeam->select($token);
 			$getTeam->getRow($this->teamId, $this->privatePlay);
-			$this->needsCaptcha = !$this->passedCaptcha && self::SECURITY_LEVEL == 2;
+			$this->needsCaptcha = !$this->passedCaptcha && SECURITY_LEVEL == 2;
 			return !!$this->teamId;
 		}
 		catch (Throwable $ex)
