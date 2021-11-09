@@ -3,19 +3,19 @@
 // This page contains all views for the gameplay loop seen by regular players.
 
 // TODO: make everything use more color, maybe some fancy fonts
-//       MOVE CREDENTIALS to some kind of config, preferably in parent of html directory
-//       team play!  need new session handling, challenge, and review queries...
-//       delayed team play needs email and/or text notification... return visit must go to correct phase
-//       real-time team play needs status display with push updates... chat window?  scheduled future invite?
-//       support sso identity, or simple password if that's too hard?
+//       AAAAARRRRGH just deprecate team play in order to get this out the door
+//       support sso identity, and use for admin... or simple password if that's too hard? or local pwd as max security?
 //       history of own pitches? (incentive for login)
 //       session history: add field for last reviewed by, null for new records?
 //
-// BUGS: "with pits" query for reviews or faves are intermittently slow, but still test as fast
+// BUGS: "with pits" queries for reviews or faves are intermittently slow, but still test as fast
 //
 // TEST: Pronounce Judgment should never misdirect to history
 //
 // IDEA: banner text curved cinemascope style via svg?
+//       team play!  need new session handling, challenge, and review queries...
+//       real-time team play needs status display with push updates... chat window?  scheduled future invite?
+//       delayed team play needs email and/or text notification... return visit must go to correct phase
 //       purge should remove pending flags?
 //       suspicious users query: add fresh rejections
 //       ...maybe a link to see other pitches by the same author?  only if signature used?
