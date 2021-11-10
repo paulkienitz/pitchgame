@@ -72,5 +72,8 @@ Use `pitchgame tables.sql` to create the database, but don't upload that file to
 Put your database host and password in `pitch-configure.php`.
 Use `.htaccess` or equivalent to forbid downloading `pitch-configure.php` itself.
 Also use it to make `pitchgame.php` the default index page in its directory, if that's desirable, i.e. if the game is in its own separate directory.
+Also use it to protect `moderator.php` with a password.
+(You’ll have to set up the user accounts and passwords with some other administrative tool.)
+I have provided a sample version of `.htaccess` which does these things; if you use a web host other than Apache, you will have to devise an alternative.
 Adjust the other constants in `pitch-configure.php` if you want to use recaptcha.
 Then upload the other files and test it out.
