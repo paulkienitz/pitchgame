@@ -3,9 +3,8 @@
 // This page contains all views for the gameplay loop seen by regular players.
 
 // TODO: make everything use more color, maybe some fancy fonts
-//       AAAAARRRRGH just deprecate team play in order to get this out the door
+//       protect admin page in separate folder
 //       support sso identity, and use for admin... or simple password if that's too hard? or local pwd as max security?
-//       history of own pitches? (incentive for login)
 //       session history: add field for last reviewed by, null for new records?
 //
 // BUGS: "with pits" queries for reviews or faves are intermittently slow, but still test as fast
@@ -18,13 +17,14 @@
 //       delayed team play needs email and/or text notification... return visit must go to correct phase
 //       purge should remove pending flags?
 //       suspicious users query: add fresh rejections
+//       history of own pitches? (incentive for login)
 //       ...maybe a link to see other pitches by the same author?  only if signature used?
 //       session history should search for IP matches
 //       view history of accept, reject, ban, and bulk delete by other admins? super-admin page for this?
 
 require 'pitchdata.php';
 require 'common.php';
-require 'configure.php';
+require 'pitch-configure.php';
 
 define('ASK3_COLD', 0);
 define('PITCH',     1);
@@ -63,7 +63,7 @@ $pitchesToReview = [];			// array of Pitch structures defined in pitchdata.php
 if (!$databaseFailed)
 {
 	$databaseFailed = !connectToSession($con);
-	if (!$databaseFailed && isset($_GET['team']))
+	if (!$databaseFailed && SUPPORT_TEAMS && isset($_GET['team']))
 		$team = $con->joinTeam($_GET['team']);
 }
 else
@@ -247,7 +247,11 @@ if (($team || REQUIRE_NAME) && !$con->nickname)
 	<aside>
 		<div class=closer><span>×</span></div>
 
-<?php require 'pitchhints.html-content'; ?>
+		<?php
+		require 'pitchhints.html-content';
+		if (SUPPORT_TEAMS)
+			require 'pitchhints-team.html-content';
+		?>
 
 	</aside>
 </div>

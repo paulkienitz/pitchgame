@@ -28,6 +28,7 @@ I'll call it prerelease 0.6 at the point where I started adding team features.
 None of them are ready to use yet, but one thing it does add is a prompt to make new players give a name, which is mandatory in team mode and can be required in non-team mode by setting a constant.
 
 For the next checkin I added `configure.php` as a place to put configuration options and credentials.
+Then I gave the input controls some color and styling.
 
 Yet to be added are more cosmetics, proper login (maybe including SSO), and the team play feature.
 
@@ -68,8 +69,8 @@ If no moderation requests are left, the starting page lists users who have had s
 
 You'll need a host with PHP and MySql or MariaDB.
 Use `pitchgame tables.sql` to create the database, but don't upload that file to the web host.
-Put your database host and password in `configure.php`.
-Use `.htaccess` or equivalent to forbid downloading `configure.php` itself.
+Put your database host and password in `pitch-configure.php`.
+Use `.htaccess` or equivalent to forbid downloading `pitch-configure.php` itself.
 Also use it to make `pitchgame.php` the default index page in its directory, if that's desirable, i.e. if the game is in its own separate directory.
-Adjust the other constants in `configure.php` if you want to use recaptcha.
+Adjust the other constants in `pitch-configure.php` if you want to use recaptcha.
 Then upload the other files and test it out.
