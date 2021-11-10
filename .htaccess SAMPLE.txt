@@ -1,0 +1,17 @@
+DirectoryIndex pitchgame.php
+Options -Indexes
+<files ".htaccess">
+	Require all denied
+</files>
+<files "configure.php">
+	Require all denied
+</files>
+<files "pitchdata*.php">
+	Require all denied
+</files>
+<files "moderator.php">
+	AuthType Basic
+	AuthName "moderators only"
+	AuthUserFile /home/web/yoursite.cow/webpasswords-pitchgame-moderators
+	Require	valid-user
+</files>
