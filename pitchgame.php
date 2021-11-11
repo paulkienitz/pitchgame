@@ -8,6 +8,7 @@
 //       session history: add field for last reviewed by, null for new records?
 //
 // BUGS: "with pits" queries for reviews or faves are intermittently slow, but still test as fast
+//       plopup background doesn't fill whole window
 //
 // TEST: Pronounce Judgment should never misdirect to history
 //

@@ -54,7 +54,7 @@ function randomize(ev)
 function showSessionSummary(ev)
 {
 	var sessionId = this.id.substring(8);
-	var url = "pitchgame_admin.php?sessionId=" + sessionId;
+	var url = "moderator.php?sessionId=" + sessionId;
 	var plopup = document.getElementById('sessionStats');
 	SPARE.replaceContent("userSummarySpot", url, "userSummary", null, plopup, function (plopup) {
 		plopup.style.display = 'block';

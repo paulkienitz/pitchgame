@@ -70,9 +70,11 @@ function attribution(int $id, string $when, int $sessionId, ?string $name, int $
 
 function ject(?int $rejectedBy, ?int $acceptedBy, ?string $rejectNickname)
 {
+	if (!$rejectedBy)
+		return '';
 	$rl = slink($rejectedBy, $rejectNickname);
-	return !$rejectedBy ? '' : (!$acceptedBy ? " — <span class=warn>REJECTED by $rl</span>"
-	                                         : " — <span class=warn>PARTIALLY REJECTED by $rl</span>");
+	return !$acceptedBy ? " — <span class=warn>REJECTED by $rl</span>"
+	                    : " — <span class=warn>PARTIALLY REJECTED by $rl</span>";
 }
 
 function judgment(?string $modStatus, ?bool $deleted, string $prefix, string $postfix)
@@ -278,7 +280,7 @@ if (!$databaseFailed)
 <p>
 	<a class=aftergap href='/pitchgame/'>Return to the game</a>
 	<?php if ($pagestate != PENDING) { ?>
-	<a id=backToList href='/pitchgame/pitchgame_admin.php'>Return to moderation list</a>
+	<a id=backToList href='/pitchgame/moderator.php'>Return to moderation list</a>
 	<?php } ?>
 <p>
 	
@@ -425,7 +427,7 @@ if (!$databaseFailed)
 <?php } else if ($pagestate == POPUP || $pagestate == HISTORY) { ?>
 
 	<?php if ($pagestate == 1) { ?>
-	<form method="POST" action='pitchgame_admin.php'>
+	<form method="POST" action='moderator.php'>
 		<input type=hidden name=formtype id=formtype value='history' />
 		<input type=hidden name=sessionid value='<?=$sessionId?>' />
 	</form>
