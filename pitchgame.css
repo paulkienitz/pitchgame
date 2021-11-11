@@ -11,6 +11,10 @@ body {
 h2 {
 	margin-top: 0.5rem;
 }
+a:link, a:visited, a:active {
+	color: #2727A0;
+}
+
 .title {
 	text-align: center;
 	padding: 0;
@@ -31,12 +35,13 @@ h2 {
 	position: absolute;
 	z-index: 1;
 	width: calc(100% - 4rem);
+	height: calc(100% - 4.1rem);
 	left: 50%;
-	margin: -0.5rem -50%;
+	margin: -0.6rem -50%;
 	padding: 2rem;
 }
 .plop .backer {
-	background-color: #BBCCBB;
+	background-color: #BBBBCC;
 	opacity: 0.2;
 	position: absolute;
 	width: 100%;
