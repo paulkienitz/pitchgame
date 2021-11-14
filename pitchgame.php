@@ -2,25 +2,24 @@
 <?php
 // This page contains all views for the gameplay loop seen by regular players.
 
-// TODO: make everything use more color, maybe some fancy fonts
-//       protect admin page in separate folder
-//       support sso identity, and use for admin... or simple password if that's too hard? or local pwd as max security?
-//       session history: add field for last reviewed by, null for new records?
+// TODO: detect and validate twice-reused submissions, but stay back-button friendly
 //
-// BUGS: "with pits" queries for reviews or faves are intermittently slow, but still test as fast
+// BUGS: "with pits" queries for reviews or faves are intermittently slow, but still test as fast in phpmyadmin
 //
-// TEST: Pronounce Judgment should never misdirect to history
+// TEST: 
 //
 // IDEA: banner text curved cinemascope style via svg?
+//       support sso identity, and use for admin... or simple password if that's too hard? or local pwd as max security?
 //       team play!  need new session handling, challenge, and review queries...
 //       real-time team play needs status display with push updates... chat window?  scheduled future invite?
 //       delayed team play needs email and/or text notification... return visit must go to correct phase
-//       purge should remove pending flags?
-//       suspicious users query: add fresh rejections
+//       word mod req page: examples easier to read with bullet list?
+//       session history: add field for last reviewed by, null for new records?
 //       history of own pitches? (incentive for login)
 //       ...maybe a link to see other pitches by the same author?  only if signature used?
 //       session history should search for IP matches
 //       view history of accept, reject, ban, and bulk delete by other admins? super-admin page for this?
+//       add more color?
 
 require 'pitchdata.php';
 require 'common.php';
@@ -229,11 +228,29 @@ if (($team || REQUIRE_NAME) && !$con->nickname)
 	<meta name="KeyWords" content="movies, film, cinema, hollywood, pitch, sell, ideas, game, entertainment, creative, KO Rob, KO Picture Show, kopictureshow.com">
 
 	<title>The Movie Pitch Game!</title>
+	<link rel="preconnect" href="https://fonts.googleapis.com">
+	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+	<link href="https://fonts.googleapis.com/css2?family=Arvo&family=Paprika&family=ABeeZee&family=Acme&family=Comfortaa&family=Lemonada&display=swap" rel="stylesheet"> 
 	<link rel="stylesheet" href="pitchgame.css">
 	<script type="text/javascript" src="pitchgame.js"></script>
 	<?php if ($con->needsCaptcha) { ?>
 	<script src="https://www.google.com/recaptcha/api.js" async defer></script>
 	<?php } ?>
+
+	<style type='text/css'>
+		/* For prompts, use ABeeZee for plain or Paprika (or Lemonada) for fancy.  For input, use Arvo (or find something better).
+		   For body, use ABeeZee for plain or Comfortaa for thin and stylishly modern. */
+
+		/* Font notes: Arvo is typewriter-ish but cleaner and not monospace, let's use for input and lit... go heavier?  Patua One needs to go lighter but can't */
+		/* Acme is heavy and slanty, usable for prompts and maybe for body, but I'd like it lighter for body use... let's use for prompts */
+		/* Nunito is clean and pleasant, good for prompts without adding many style points; ABeeZee is more stylish, ok for body and good for prompts */
+		/* Comfortaa/700 is very round and modern, acceptable for body text, should contrast well with arvo? (nope), also nice for prompts but maybe too wide */
+		/* Baloo 2 is a bit short and wide for prompts, acceptable for body? */
+		/* Lemonada is cursive-ish, okay for body, better for prompts; Paprika is similar but tall, Akaya more stylish, but pinched */
+		/* Balsamiq Sans is comic-sansy, fuck it... Genos is pinched and blocky, fuck it... Gluten is also too comicy, fuck it...
+		   Patua One is too heavy, fuck it... fuck Boogaloo... Calistoga is too heavy, fuck it... Corben too old-fashioned, fuck it...
+		   Fuck Lemonada... fuck Akaya... fuck Comfortaa... fuck Nunito... */
+\	</style>
 </head>
 
 
@@ -349,7 +366,7 @@ if (($team || REQUIRE_NAME) && !$con->nickname)
 
 	Thank you.&ensp;Your three word
 	<?=$ideaWordCount <= 3 ? '' : '— er, ' . englishNumber($ideaWordCount) . ' word? —'?>
-	idea, “<?=enc($idea)?>”, will soon be inspiring
+	idea, “<span class=lit><?=enc($idea)?></span>”, will soon be inspiring
 	others to come up with creative movie pitches.
 
 	</p><p>
@@ -357,7 +374,7 @@ if (($team || REQUIRE_NAME) && !$con->nickname)
 	And now it’s your turn!&ensp;Your story idea is:
 
 	</p>
-	<h2 class=challenge>
+	<h2 class="challenge lit">
 	<?=enc($challengeSummary)?>
 	</h2>
 	<div class=modery>(<a href='' id=moderato>click here</a> if one or more words are invalid)</div>
@@ -377,7 +394,7 @@ if (($team || REQUIRE_NAME) && !$con->nickname)
 			</div><div style='position: relative'>
 				<label class=optionality>(optional)</label>
 				<label for=signature>Signature:</label>
-				<input type=text id=signature name=signature value='<?=enc($signature)?>' maxlength=100 tabindex=3 />
+				<input type=text id=signature name=signature class="chungus mini" value='<?=enc($signature)?>' maxlength=100 tabindex=3 />
 				<span class=postchex><label><input type=checkbox name=defsig value=1 />Use as my default signature</label></span>
 			</div>
 		</div>
@@ -387,7 +404,7 @@ if (($team || REQUIRE_NAME) && !$con->nickname)
 		</div>
 	<?php } ?>
 		<p>
-			<button tabindex=4>Submit My Pitch!</button>
+			<button id=pitchery tabindex=4>Submit My Pitch!</button>
 		</p>
 	</form>
 
@@ -412,11 +429,11 @@ if (($team || REQUIRE_NAME) && !$con->nickname)
 			    <?=enc($pitcher->verb)?> <?=enc($pitcher->object)?>”:</i>
 			</div>
 			<h3 class=favetitle><?=enc($pitcher->title)?></h3>
-			<p style='white-space: pre-wrap'><?=enc($pitcher->pitch)?></p>
-			<?php if ($pitcher->signature) echo '<div>&mdash; ' . enc($pitcher->signature) . "</div>\n"; ?>
+			<p style='white-space: pre-wrap' class=lit><?=enc($pitcher->pitch)?></p>
+			<?php if ($pitcher->signature) echo '<div class=lit>&mdash; ' . enc($pitcher->signature) . "</div>\n"; ?>
 			<div class=stars>
 				<input type=hidden id='newrating_<?=$pitcher->pitchId?>' name='newrating_<?=$pitcher->pitchId?>' value=''></input>
-				Your rating: 
+				<span class=rate>Your rating:</span>
 				<a id='star_1_<?=$pitcher->pitchId?>' class=star title='1 star'>&#9734;</a>
 				<a id='star_2_<?=$pitcher->pitchId?>' class=star title='2 stars'>&#9734;</a>
 				<a id='star_3_<?=$pitcher->pitchId?>' class=star title='3 stars'>&#9734;</a>
@@ -477,21 +494,22 @@ if (($team || REQUIRE_NAME) && !$con->nickname)
 
 	</p><p>
 
-	You should mark a word invalid if it can’t be used as the correct part
-	of speech (for instance “of”, “actually”, or “tall”), if it’s gibberish
-	(“Ggggggg”, “asdfasdf”), if it’s spam (“lose-weight-fast.zzxx.cwm”,
-	“buy DogeCoin now!”), if it’s an attempted hack
-	(“&lt;script src='http://unknown.site/xxx.js'&gt;&lt;script&gt;”,
-	“Football'; DROP TABLE pitch_verb;”), if it’s not English and wouldn’t be
-	recognized by English speakers (“Mantergeistmännlichkeit”, “新代载人飞船”),
-	or if it’s hate propaganda or promotes crime.
+	You should mark a word invalid if it can’t be used as the correct part of speech
+	(for instance “<span class=lit>of</span>” or “<span class=lit>actually</span>” or
+	“<span class=lit>tall</span>”), if it’s gibberish (like “<span class=lit>Ggggggg</span>” or
+	“<span class=lit>asdfasdf</span>”), if it’s spam (“<span class=lit>lose-weight-fast.zzxx.cwm</span>”
+	or “<span class=lit>buy DogeCoin now!</span>”), if it’s an attempted hack
+	(such as “<span class=lit>&lt;script src='http://unknown.site/xxx.js'&gt;&lt;script&gt;</span>”
+	or “<span class=lit>x'; DROP TABLE pitch_verb;</span>”), if it’s not English
+	and wouldn’t be recognized by English speakers (“<span class=lit>Mantergeistmännlichkeit</span>”
+	or “<span class=lit>新代载人飞船</span>”), or if it’s hate propaganda or promotes crime.
 
 	</p><p>
 
 	You should <i>not</i> mark words invalid because the sentence it makes is
-	grammatically awkward due to mismatched plurals or tenses (“ichthyosaurs flies
-	over pessimism”), because it has adult language (“Ben Franklin shits on your
-	shoe”), or because you would really like an easier idea to pitch.&ensp;The
+	grammatically awkward due to mismatched plurals or tenses (“<span class=lit>ichthyosaurs flies
+	over pessimism</span>”), because it has adult language (“<span class=lit>Ben Franklin shits on your
+	shoe</span>”), or because you would really like an easier idea to pitch.&ensp;The
 	inconvenience of trying to make creative sense of a jumbled idea is a core part
 	of the game!&ensp;Abuse of this reporting feature will be monitored.
 	
@@ -509,11 +527,11 @@ if (($team || REQUIRE_NAME) && !$con->nickname)
 		<input type=hidden name=pitch value='<?=enc($pitch)?>' />
 		<input type=hidden name=signature value='<?=enc($signature)?>' />
 		<p>
-			<label><input type=checkbox name=badsubject id=badSubject/> “<?=enc($challenge->subject)?>” is not a noun</label>
+			<label><input type=checkbox name=badsubject id=badSubject/> “<span class=lit><?=enc($challenge->subject)?></span>” is not a noun</label>
 		</p><p>
-			<label><input type=checkbox name=badverb id=badVerb/> “<?=enc($challenge->verb)?>” is not a verb</label>
+			<label><input type=checkbox name=badverb id=badVerb/> “<span class=lit><?=enc($challenge->verb)?></span>” is not a verb</label>
 		</p><p>
-			<label><input type=checkbox name=badobject id=badObject/> “<?=enc($challenge->object)?>” is not a noun</label>
+			<label><input type=checkbox name=badobject id=badObject/> “<span class=lit><?=enc($challenge->object)?></span>” is not a noun</label>
 		</p><p>
 			<button>Submit and Return to my Pitch</button>
 		</p>

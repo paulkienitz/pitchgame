@@ -57,11 +57,13 @@ class SessionSummary
 	public ?int    $pitchesFlaggedCount;
 	public ?int    $pitchesDeletedCount;
 	public ?int    $pitchesModeratedCount;
-	public ?int    $modRequestsCount;
-	public ?string $modRequestsEarliest;
-	public ?string $modRequestsLatest;
-	public ?int    $modRequestsAcceptedCount;
-	public ?int    $modRequestsRejectedCount;
+	public ?int    $modReqsCount;
+	public ?string $modReqsEarliest;
+	public ?string $modReqsLatest;
+	public ?int    $modReqsAcceptedCount;
+	public ?int    $modReqsRejectedCount;
+	public ?int    $modReqsPendingCount;
+	public ?int    $modReqsSplitCount;
 }
 
 class HistoryPart
@@ -227,14 +229,15 @@ class PitchGameAdminConnection extends PitchGameConnection
 			                    FROM ses INNER JOIN
 			                         pitches p USING (session_id) ),
 			         req AS ( SELECT count(*) as total_reqs_ct, min(when_submitted) AS earliest_req, max(when_submitted) AS latest_req,
-			                         SUM(CASE WHEN accepted_by IS NULL THEN 0 ELSE 1 END) AS accepted_reqs_ct,
-			                         SUM(CASE WHEN rejected_by IS NULL THEN 0 ELSE 1 END) AS rejected_reqs_ct
+			                         sum(CASE WHEN accepted_by IS NULL THEN 0 ELSE 1 END) AS accepted_reqs_ct,
+			                         sum(CASE WHEN rejected_by IS NULL THEN 0 ELSE 1 END) AS rejected_reqs_ct,
+			                         sum(CASE WHEN accepted_by IS NULL AND rejected_by IS NULL THEN 1 ELSE 0 END) pending_reqs_ct
 			                    FROM ses INNER JOIN 
 			                         moderations USING (session_id) )
 			    SELECT blocked_by, is_test, nickname, signature, ip_address, useragent, when_created, when_last_used, when_last_reviewed, when_last_reviewed_unix,
 			           idea_ct, earliest_idea, latest_idea, word_shown_ct, word_flag_ct, word_deleted_ct, word_moderated_ct,
 			           pitch_ct, earliest_pitch, latest_pitch, pitch_shown_ct, pitch_flag_ct, pitch_deleted_ct, pitch_moderated_ct,
-			           total_reqs_ct, earliest_req, latest_req, accepted_reqs_ct, rejected_reqs_ct
+			           total_reqs_ct, earliest_req, latest_req, accepted_reqs_ct, rejected_reqs_ct, pending_reqs_ct
 			      FROM ses, sug, pit, req');
 	
 			if ($getStats->select($sessionId))
@@ -246,9 +249,10 @@ class PitchGameAdminConnection extends PitchGameConnection
 				                       $result->wordsFlaggedCount, $result->wordsDeletedCount, $result->wordsModeratedCount,
 				                       $result->pitchesCount, $result->pitchesEarliest, $result->pitchesLatest, $result->pitchesShownCount,
 				                       $result->pitchesFlaggedCount, $result->pitchesDeletedCount, $result->pitchesModeratedCount,
-				                       $result->modRequestsCount, $result->modRequestsEarliest, $result->modRequestsLatest,
-				                       $result->modRequestsAcceptedCount, $result->modRequestsRejectedCount))
+				                       $result->modReqsCount, $result->modReqsEarliest, $result->modReqsLatest,
+				                       $result->modReqsAcceptedCount, $result->modReqsRejectedCount, $result->modReqsPendingCount))
 					return null;
+				$result->modReqsSplitCount = $result->modReqsAcceptedCount + $result->modReqsRejectedCount + $result->modReqsPendingCount - $result->modReqsCount;
 				return $result;
 			}
 		}
@@ -475,11 +479,37 @@ class PitchGameAdminConnection extends PitchGameConnection
 			        AND NOT EXISTS ( SELECT 1 FROM suggestions
 			                          WHERE object_id = objects.object_id AND session_id <> ? )
 			        AND is_deleted = false');
+			$undoModSubjects = new Updater($this->marie, $this->log, 'i',
+			    'UPDATE subjects SET moderation_flag_ct = moderation_flag_ct - 1
+			      WHERE moderation_flag_ct > 0 AND moderation_status IS NULL AND subject_id IN
+			            ( SELECT subject_id FROM moderations
+			               WHERE accepted_by IS NULL AND rejected_by IS NULL AND session_id = ? )');
+			$undoModVerbs = new Updater($this->marie, $this->log, 'i',
+			    'UPDATE verbs SET moderation_flag_ct = moderation_flag_ct - 1
+			      WHERE moderation_flag_ct > 0 AND moderation_status IS NULL AND verb_id IN
+			            ( SELECT verb_id FROM moderations
+			               WHERE accepted_by IS NULL AND rejected_by IS NULL AND session_id = ? )');
+			$undoModObjects = new Updater($this->marie, $this->log, 'i',
+			    'UPDATE objects SET moderation_flag_ct = moderation_flag_ct - 1
+			      WHERE moderation_flag_ct > 0 AND moderation_status IS NULL AND object_id IN
+			            ( SELECT object_id FROM moderations
+			               WHERE accepted_by IS NULL AND rejected_by IS NULL AND session_id = ? )');
+			$undoModPitches = new Updater($this->marie, $this->log, 'i',
+			    'UPDATE pitches SET moderation_flag_ct = moderation_flag_ct - 1
+			      WHERE moderation_flag_ct > 0 AND moderation_status IS NULL AND pitch_id IN
+			            ( SELECT pitch_id FROM moderations
+			               WHERE accepted_by IS NULL AND rejected_by IS NULL AND session_id = ? )');
+			$purgeModerations = new Updater($this->marie, $this->log, 'ii',
+			    'UPDATE moderations SET rejected_by = ?  -- maybe:  , pitch_id = NULL, subject_id = NULL, verb_id = NULL, object_id = NULL
+			      WHERE accepted_by IS NULL AND rejected_by IS NULL AND session_id = ?');
 
 			$this->marie->begin_transaction();
 			$ret = $this->blockSession($sessionId, true) &&
 			       $purgePitches->update($sessionId) && $purgeSubjects->update($sessionId, $sessionId) &&
-			       $purgeVerbs->update($sessionId, $sessionId) && $purgeObjects->update($sessionId, $sessionId);
+			       $purgeVerbs->update($sessionId, $sessionId) && $purgeObjects->update($sessionId, $sessionId) &&
+			       $undoModSubjects->update($sessionId) && $undoModVerbs->update($sessionId) &&
+			       $undoModObjects->update($sessionId) && $undoModPitches->update($sessionId) &&
+			       $purgeModerations->update($this->sessionId, $sessionId);
 			if ($ret)
 				$this->marie->commit();
 			else
@@ -494,35 +524,46 @@ class PitchGameAdminConnection extends PitchGameConnection
 		}
 	}
 
-	public function getSuspiciousSessions(int $ageInDays): ?array
+	public function getSuspiciousSessions(int $ageInDays, bool $everybodyIsSuspicious): ?array
 	{
 		try
 		{
-			$findUsers = new Selector($this->marie, $this->log, 'i', '
+			$findUsers = new Selector($this->marie, $this->log, 'iii', '
 			    WITH sesns AS ( SELECT session_id, nickname, signature, when_last_used, when_last_reviewed
-				                  FROM sessions
-								 WHERE blocked_by IS NULL AND datediff(now(), when_last_used) <= ? ),
-			         words AS ( SELECT session_id, sum(s.is_deleted + v.is_deleted + o.is_deleted) AS word_deletions
+			                      FROM sessions
+			                     WHERE datediff(now(), when_last_used) <= ?
+			                       AND (blocked_by IS NULL OR ? > 0) ),
+			         words AS ( SELECT session_id, sum(s.is_deleted + v.is_deleted + o.is_deleted) AS word_deletions,
+			                           count(DISTINCT suggestion_id) AS ideas
 			                      FROM sesns INNER JOIN
-								       suggestions g USING (session_id) INNER JOIN
+			                           suggestions g USING (session_id) INNER JOIN
 			                           subjects s    USING (subject_id) INNER JOIN
 			                           verbs v       USING (verb_id)    INNER JOIN
 			                           objects o     USING (object_id) 
 			                     WHERE when_suggested >= ifnull(when_last_reviewed, DATE \'1901-01-01\')
 			                     GROUP BY session_id ),
-			         ptchs AS ( SELECT session_id, sum(is_deleted) AS pitch_deletions
-					              FROM sesns INNER JOIN pitches USING (session_id)
-								 WHERE when_submitted >= ifnull(when_last_reviewed, DATE \'1901-01-01\')
-								 GROUP BY session_id )
-			    SELECT session_id, nickname, signature, when_last_used, ifnull(word_deletions, 0) + ifnull(pitch_deletions, 0) AS deletions
-                  FROM sesns LEFT JOIN
-				       words USING (session_id) LEFT JOIN
-					   ptchs USING (session_id)
-                 WHERE word_deletions > 0 OR pitch_deletions > 0
+			         ptchs AS ( SELECT session_id, sum(is_deleted) AS pitch_deletions, count(pitch_id) AS pitches
+			                      FROM sesns INNER JOIN pitches USING (session_id)
+			                     WHERE when_submitted >= ifnull(when_last_reviewed, DATE \'1901-01-01\')
+			                     GROUP BY session_id ),
+			         jects AS ( SELECT session_id, count(moderation_id) AS reject_count
+			                      FROM sesns INNER JOIN moderations USING (session_id)
+			                     WHERE rejected_by IS NOT NULL   -- use a separate rejection date column?
+			                       AND when_submitted >= ifnull(when_last_reviewed, DATE \'1901-01-01\')
+			                     GROUP BY session_id )
+			    SELECT session_id, nickname, signature, when_last_used,
+			           ifnull(word_deletions, 0) + ifnull(pitch_deletions, 0) AS deletions
+			      FROM sesns LEFT JOIN
+			           words USING (session_id) LEFT JOIN
+			           ptchs USING (session_id) LEFT JOIN
+			           jects USING (session_id)
+			     WHERE (ideas IS NOT NULL OR pitches IS NOT NULL OR reject_count IS NOT NULL)
+			       AND (ifnull(word_deletions, 0) + ifnull(pitch_deletions, 0) > 0
+			            OR ifnull(reject_count, 0) > 0 OR ? > 0)
 			     ORDER BY deletions DESC, when_last_used DESC');
 
 			$results = [];
-			$findUsers->select($ageInDays);
+			$findUsers->select($ageInDays, $everybodyIsSuspicious, $everybodyIsSuspicious);
 			do {
 				$u = new SuspiciousSession();
 				$gotten = $findUsers->getRow($u->sessionId, $u->nickname, $u->signature, $u->whenLastUsed, $u->deletions);

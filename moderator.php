@@ -2,7 +2,7 @@
 <?php
 // This page is for moderators and administrators.  Set it to be accessible only with a password.
 
-require 'pitchdata_admin.php';
+require 'pitchdata-admin.php';
 require 'common.php';
 
 define('PENDING',   0);
@@ -26,6 +26,7 @@ $purgery = false;
 $moderationRequests = null;
 $userSummary = null;
 $suspiciousSessions = null;
+$everybodyIsSuspicious = false;
 $history = null;
 
 
@@ -151,6 +152,13 @@ else if (isset($_POST['formtype']) && !$databaseFailed)		// extract form values,
 	else if ($_POST['formtype'] == 'usualsuspects')
 	{
 		$suspiciousUserDays = (int) $_POST['daysold'] ?: 3;
+		$everybodyIsSuspicious = (bool) (int) $_POST['suspicion'];
+		$pagestate = PENDING;
+	}
+	else if ($_POST['formtype'] == 'suspectmoreorless')
+	{
+		$suspiciousUserDays = (int) $_POST['daysold'] ?: 3;
+		$everybodyIsSuspicious = !(bool) (int) $_POST['suspicion'];
 		$pagestate = PENDING;
 	}
 	else if ($_POST['formtype'] == 'history')
@@ -244,7 +252,7 @@ if (!$databaseFailed)
 	}
 	if ($pagestate == PENDING && !$databaseFailed && !count($moderationRequests))
 	{
-		$suspiciousSessions = $con->getSuspiciousSessions($suspiciousUserDays);
+		$suspiciousSessions = $con->getSuspiciousSessions($suspiciousUserDays, $everybodyIsSuspicious);
 		$databaseFailed = !is_array($suspiciousSessions);
 	}
 }
@@ -391,12 +399,13 @@ if (!$databaseFailed)
 	<p>So instead, here is a list of active users who have had one or more of
 	their word or pitch submissions deleted, or who’ve flagged someone else’s
 	input for reasons found invalid, since the last time someone reviewed them
-	here.&ensp;You can review their histories and see if they have committed
-	further offenses.</p>
+	here.&ensp;Or, you can switch to just showing all recently active users.&ensp;You
+	can review their histories and see if they have committed new offenses.</p>
 
 	<form method="POST" class="meta direct">
 		<input type=hidden name=formtype id=formtype value='usualsuspects' />
 		<input type=hidden name=sessionid id=lastSessionId value='' />
+		<input type=hidden name=suspicion value='<?=$everybodyIsSuspicious ? 1 : 0?>' />
 
 		<p>Showing users active in the last
 		<select name=daysold id=daysOldDropdown>
@@ -415,6 +424,13 @@ if (!$databaseFailed)
 		<?php } ?>
 		<?php if (!count($suspiciousSessions)) { ?>
 			<p>None found — all have already been reviewed.</p>
+		<?php } ?>
+		<?php if (!$everybodyIsSuspicious) { ?>
+			<p><a href='' id=suspectmoreorless>Click here</a> to cast a wider net and include
+			   active users who do not have any misbehavior reported.</p>
+		<?php } else { ?>
+			<p><a href='' id=suspectmoreorless>Click here</a> to narrow the search and include
+			   only users who have had misbehavior reported.</p>
 		<?php } ?>
 	</form>
 
@@ -463,11 +479,12 @@ if (!$databaseFailed)
 			</tr>
 	<?php } ?>
 			<tr><td>Moderation requests:</td>
-			    <td><?=countAndRange($userSummary->modRequestsCount, $userSummary->modRequestsEarliest, $userSummary->modRequestsLatest)?></td>
+			    <td><?=countAndRange($userSummary->modReqsCount, $userSummary->modReqsEarliest, $userSummary->modReqsLatest)?></td>
 			</tr>
-	<?php if ($userSummary->modRequestsCount) { ?>
+	<?php if ($userSummary->modReqsCount) { ?>
 			<tr><td>Moderation outcomes:</td>
-			    <td><?=$userSummary->modRequestsAcceptedCount?> accepted, <?=$userSummary->modRequestsRejectedCount?> rejected</td>
+			    <td><?=$userSummary->modReqsAcceptedCount?> accepted<?=$userSummary->modReqsSplitCount > 0 ? " ($userSummary->modReqsSplitCount split)" : ''?>,
+			    <?=$userSummary->modReqsRejectedCount?> rejected, <?=$userSummary->modReqsPendingCount?> pending</td>
 			</tr>
 	<?php } ?>
 	<?php if ($userSummary->whenLastReviewed) { ?>
@@ -491,10 +508,12 @@ if (!$databaseFailed)
 
 	Here is everything they’ve submitted, from most recent to oldest.&ensp;If you
 	see that the user is mainly making an honest effort, you can use the “Flag for
-	further ttention” checkbox to flag the bad cases for moderation.&ensp;On the
-	other hand, if there’s plenty of bad and not much good here, there’s no need
-	to take that much trouble... in that case, there’s an option to completely
-	purge everything the user has submitted.
+	further attention” checkbox to flag the bad cases for moderation.&ensp;Then you
+	can either block them, or let them continue — either way, they are marked as
+	having been reviewed and will disappear from the suspicious users list.&ensp;If
+	there’s plenty of bad and not much good here, then there’s no need to take the
+	trouble of flagging each individual offense... in that case, there’s an option
+	to completely purge everything the user has submitted.
 
 	</p>
 	<form method="POST" class=meta>
@@ -583,7 +602,9 @@ if (!$databaseFailed)
 	<p>The purge will delete <?=$userSummary->pitchesCount - $userSummary->pitchesDeletedCount?>
 	pitches (<?=$userSummary->pitchesDeletedCount?> are already deleted).&ensp;It will delete up to
 	<?=3 * $userSummary->ideasCount - $userSummary->wordsDeletedCount?> nouns and verbs, omitting
-	any also used by other players (<?=$userSummary->wordsDeletedCount?> are already deleted).</p>
+	any also used by other players (<?=$userSummary->wordsDeletedCount?> are already
+	deleted).&ensp;It will also reject <?=$userSummary->modReqsPendingCount?> pending moderation
+	requests (<?=$userSummary->modReqsRejectedCount?> already rejected).</p>
 
 	<form method=POST>
 		<input type=hidden name=formtype value='purging' />

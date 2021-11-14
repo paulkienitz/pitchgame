@@ -72,6 +72,9 @@ function closer()
 	this.closest('.plop').style.display = 'none';
 }
 
+// Gotta be careful with these things that change formtype.
+// The change can stick if the user uses the Back button.
+
 function beModerate(ev)
 {
 	var formtype = document.getElementById('formtype');
@@ -79,6 +82,20 @@ function beModerate(ev)
 	if (form && formtype)
 	{
 		formtype.value = 'moderate';
+		form.submit();
+	}
+	ev.preventDefault();
+	ev.stopPropagation();
+	return false;
+}
+
+function beSuspicious(ev)
+{
+	var formtype = document.getElementById('formtype');
+	var form = document.forms[0];
+	if (form && formtype)
+	{
+		formtype.value = 'suspectmoreorless';
 		form.submit();
 	}
 	ev.preventDefault();
@@ -108,13 +125,6 @@ function beHistoricalDirectly(ev)
 	return beHistorical(ev);
 }
 
-function ensurePronounce(ev)
-{
-	var formtype = document.getElementById('formtype');
-	formtype.value = 'judgerequests';
-	return true;
-}
-
 function changeDays(ev)
 {
 	var formtype = document.getElementById('formtype');
@@ -136,6 +146,22 @@ function changeDaysMaybe(ev)
 		return changeDays(ev);
 	else
 		return true;
+}
+
+// unstick any stuck formtype:
+
+function ensurePronounce(ev)
+{
+	var formtype = document.getElementById('formtype');
+	formtype.value = 'judgerequests';
+	return true;
+}
+
+function ensurePitch(ev)
+{
+	var formtype = document.getElementById('formtype');
+	formtype.value = 'pitch';
+	return true;
 }
 
 function showStars(pitchId, rating)
@@ -172,7 +198,7 @@ function rateAsSpamOrClear(ev)
 	showStars(pitchId, parts[1] == "spam" ? -1 : 0);
 }
 
-function attach(selector, handler, event)
+function attach(selector, handler, event)   // my framework!
 {
 	var finding = document.querySelectorAll(selector);
 	for (var i = 0; i < finding.length; i++)
@@ -192,9 +218,11 @@ function init()
 	attach('.fields .slinky, .his .slinky', showSessionSummary);
 	attach('.direct .slinky', beHistoricalDirectly);
 	attach('#historicize', beHistorical);       // normally used only in a SPARE popup
+	attach('#suspectmoreorless', beSuspicious);
 	attach('#daysOldDropdown', changeDays, 'change');
 	attach('#backToList', changeDaysMaybe);
 	attach('#pronounce', ensurePronounce);
+	attach('#pitchery', ensurePitch);
 }
 
 window.addEventListener("DOMContentLoaded", init);
