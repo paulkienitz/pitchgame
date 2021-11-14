@@ -9,6 +9,6 @@ define('CAPTCHA_SECRET', 'sample-recaptcha-secret-key-zzzzzzzzzzzz');
 // preferences:
 define('SECURITY_LEVEL',  0);
 // SECURITY_LEVEL 0 = fully anonymous, 1 = new nonteam sessions must captcha, 2 = returning sessions must captcha, 3 = ...must SSO?
-define('REQUIRE_NAME',    false);
+define('REQUIRE_NAME',    true);
 define('SUPPORT_TEAMS',   false);     // setting this true does not work yet
 ?>
