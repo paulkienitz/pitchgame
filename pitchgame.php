@@ -2,7 +2,7 @@
 <?php
 // This page contains all views for the gameplay loop seen by regular players.
 
-// TODO: detect and validate twice-reused submissions, but stay back-button friendly
+// TODO: make dupe word validation more friendly to back and refresh buttons
 //
 // BUGS: "with pits" queries for reviews or faves are intermittently slow, but still test as fast in phpmyadmin
 //
@@ -53,6 +53,7 @@ $title = '';
 $pitch = '';
 $signature = '';
 
+$dupeWords = null;              // structure defined in pitchdata.php, null if valid
 $challenge = null;				// will contain three words and their IDs, structure defined in pitchdata.php
 $pitchesToReview = [];			// array of Pitch structures defined in pitchdata.php
 
@@ -93,16 +94,19 @@ if (isset($_POST['formtype']) && !$databaseFailed)		// extract form values, vali
 		$validationFailed = !$initialSubject || !$initialVerb || !$initialObject;
 		if (!$validationFailed && !$con->needsCaptcha)
 		{
-			if ($con->addWords($initialSubject, $initialVerb, $initialObject))  // no external difference for team play
-				$challenge = $con->getChallenge($seed);
-			$databaseFailed = !$challenge;
-			$idea = despace("$initialSubject $initialVerb $initialObject");		// for display
-			$ideaWordCount = substr_count($idea, ' ') + 1;
-			$challengeSummary = despace("$challenge->subject $challenge->verb $challenge->object");
-			$signature = trim($con->defaultSignature ?? $con->nickname);  // note that we fall back on null but not on blank
+			$dupeWords = $con->validateWords($initialSubject, $initialVerb, $initialObject);
+			if (!$dupeWords)
+			{
+				if ($con->addWords($initialSubject, $initialVerb, $initialObject))  // no external difference for team play
+					$challenge = $con->getChallenge($seed);
+				$databaseFailed = !$challenge;
+				$idea = despace("$initialSubject $initialVerb $initialObject");		// for display
+				$ideaWordCount = substr_count($idea, ' ') + 1;
+				$challengeSummary = despace("$challenge->subject $challenge->verb $challenge->object");
+				$signature = trim($con->defaultSignature ?? $con->nickname);   // note that we fall back on null but not on blank
+			}
 		}
-		// XXX need to preserve prior ask3 state:
-		$pagestate = $validationFailed || $con->needsCaptcha ? $variant : PITCH;
+		$pagestate = $validationFailed || $dupeWords || $con->needsCaptcha ? $variant : PITCH;
 	}
 	else if ($_POST['formtype'] == 'pitch')				// PITCH form submitted
 	{
@@ -238,9 +242,6 @@ if (($team || REQUIRE_NAME) && !$con->nickname)
 	<?php } ?>
 
 	<style type='text/css'>
-		/* For prompts, use ABeeZee for plain or Paprika (or Lemonada) for fancy.  For input, use Arvo (or find something better).
-		   For body, use ABeeZee for plain or Comfortaa for thin and stylishly modern. */
-
 		/* Font notes: Arvo is typewriter-ish but cleaner and not monospace, let's use for input and lit... go heavier?  Patua One needs to go lighter but can't */
 		/* Acme is heavy and slanty, usable for prompts and maybe for body, but I'd like it lighter for body use... let's use for prompts */
 		/* Nunito is clean and pleasant, good for prompts without adding many style points; ABeeZee is more stylish, ok for body and good for prompts */
@@ -250,7 +251,7 @@ if (($team || REQUIRE_NAME) && !$con->nickname)
 		/* Balsamiq Sans is comic-sansy, fuck it... Genos is pinched and blocky, fuck it... Gluten is also too comicy, fuck it...
 		   Patua One is too heavy, fuck it... fuck Boogaloo... Calistoga is too heavy, fuck it... Corben too old-fashioned, fuck it...
 		   Fuck Lemonada... fuck Akaya... fuck Comfortaa... fuck Nunito... */
-\	</style>
+	</style>
 </head>
 
 
@@ -342,6 +343,22 @@ if (($team || REQUIRE_NAME) && !$con->nickname)
 	<?php if ($validationFailed) { ?>
 		<div class=validation>
 			All three values are required if you want to play!
+		</div>
+	<?php } else if ($dupeWords) { ?>
+		<div class=validation>
+		<?php if ($dupeWords->allThree) { ?>
+			You have already submitted those same three words
+			<?=englishCount($dupeWords->allThree)?>.&ensp;Please use different ones.
+		<?php } else if ($dupeWords->subjectCount) { ?>
+			You have already submitted that first noun “<?=enc($initialSubject)?>”
+			<?=englishCount($dupeWords->subjectCount)?>.&ensp;Please use a different one.
+		<?php } else if ($dupeWords->verbCount) { ?>
+			You have already submitted that verb “<?=enc($initialVerb)?>”
+			<?=englishCount($dupeWords->verbCount)?>.&ensp;Please use a different one.
+		<?php } else if ($dupeWords->objectCount) { ?>
+			You have already submitted that last noun “<?=enc($initialObject)?>”
+			<?=englishCount($dupeWords->objectCount)?>.&ensp;Please use a different one.
+		<?php } ?>
 		</div>
 	<?php } ?>
 	<?php if ($con->needsCaptcha) { ?>

@@ -22,6 +22,16 @@ function englishNumber(int $n)
 	return array_key_exists($n, $words) ? $words[$n] : (string) $n;
 }
 
+function englishCount(int $n)   // but wait, England didn't have counts, it had earls
+{
+	if ($n == 1)
+		return 'once';
+	else if ($n == 2)
+		return 'twice';
+	else
+		return englishNumber($n) . ' times';
+}
+
 function connectToSession(PitchGameConnection &$con): bool
 {
 	if (!isset($_COOKIE['pitchgame']) || !$con->getSessionByToken($_COOKIE['pitchgame'], myiP(), $_SERVER['HTTP_USER_AGENT']))

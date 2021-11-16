@@ -7,6 +7,14 @@ require 'pitch-configure.php';
 
 // objects returned by PitchGameConnection methods:
 
+class DupeWordCheck
+{
+	public ?int $subjectCount;
+	public ?int $verbCount;
+	public ?int $objectCount;
+	public ?int $allThree;
+}
+
 // Our terminology is that a "suggestion" is the three words input by a player, whereas
 // a "challenge" is a scrambled three word idea output by the game to prompt a pitch.
 // This structure can contain either one.  We sometimes use the word "idea" for either.
@@ -54,6 +62,7 @@ class PitchGameConnection
 	protected ?int      $currentParticipationId = null;
 	protected ?int      $currentRound = null;
 	protected bool      $privatePlay = false;
+	protected Selector  $getSession;
 	protected SqlLogger $log;
 
 	// EXTERNALS:
@@ -73,9 +82,13 @@ class PitchGameConnection
 		try
 		{
 			$this->log = new SqlLogger(true);
-			$this->marie = new mysqli(DB_HOST, 'pitchgame', DB_PASSWORD, 'pitchgame');
+			$this->marie = new mysqli(DB_HOST, DB_USER, DB_PASSWORD, 'pitchgame');
 			$this->marie->set_charset('utf8mb4');
-			$this->preparedOK = true;		// none of the preparing has actually been done... this is no longer very meaningful
+			$this->getSession = new Selector($this->marie, $this->log, 's',
+			    'SELECT session_id, nickname, signature, blocked_by, passed_captcha, is_test, has_debug_access,
+			            timestampdiff(MINUTE, when_last_used, now()) AS minutes_old
+			       FROM sessions WHERE cookie_token = ?', true);   // prepare one query to verify connection
+			$this->preparedOK = true;
 		}
 		catch (Throwable $ex)
 		{
@@ -109,15 +122,11 @@ class PitchGameConnection
 		{
 			$minutesOld = 0;
 			$blockedBy = null;
-			$getSession = new Selector($this->marie, $this->log, 's',
-			    'SELECT session_id, nickname, signature, blocked_by, passed_captcha, is_test, has_debug_access,
-			            timestampdiff(MINUTE, when_last_used, now()) AS minutes_old
-			       FROM sessions WHERE cookie_token = ?');
 			$updateSession = new Updater($this->marie, $this->log, 'ssi',
 			    'UPDATE sessions SET ip_address = ?, useragent = ?, when_last_used = now() WHERE session_id = ?');
-			$getSession->select($token);
-			$getSession->getRow($this->sessionId, $this->nickname, $this->defaultSignature, $blockedBy,
-			                    $this->passedCaptcha, $this->isTester, $this->hasDebugAccess, $minutesOld);
+			$this->getSession->select($token);
+			$this->getSession->getRow($this->sessionId, $this->nickname, $this->defaultSignature, $blockedBy,
+			                          $this->passedCaptcha, $this->isTester, $this->hasDebugAccess, $minutesOld);
 			$this->isBlocked = !!$blockedBy;
 			$this->needsCaptcha = !$this->passedCaptcha && SECURITY_LEVEL == 2;
 			if ($minutesOld >= 5)
@@ -227,6 +236,65 @@ class PitchGameConnection
 		{
 			$this->saveError($ex);
 			return false;
+		}
+	}
+
+	public function validateWords(string $initialSubject, string $initialVerb, string $initialObject): ?DupeWordCheck
+	{
+		try
+		{
+			$checkSuggestion3 = new ScalarSelector($this->marie, $this->log, 'isss',
+			     'SELECT count(*) AS dupes
+			        FROM suggestions INNER JOIN
+			             subjects USING (subject_id) INNER JOIN
+			             verbs USING (verb_id) INNER JOIN
+			             objects USING (object_id)
+			       WHERE session_id = ? AND subjects.word = ? AND verbs.word =? AND objects.word = ?');
+			$checkSuggestionS = new ScalarSelector($this->marie, $this->log, 'is',
+			     'SELECT count(*) AS dupes
+			        FROM suggestions INNER JOIN
+			             subjects USING (subject_id)
+			       WHERE session_id = ? AND subjects.word = ?');
+			$checkSuggestionV = new ScalarSelector($this->marie, $this->log, 'is',
+			     'SELECT count(*) AS dupes
+			        FROM suggestions INNER JOIN
+			             verbs USING (verb_id)
+			       WHERE session_id = ? AND verbs.word = ?');
+			$checkSuggestionO = new ScalarSelector($this->marie, $this->log, 'is',
+			     'SELECT count(*) AS dupes
+			        FROM suggestions INNER JOIN
+			             objects USING (object_id)
+			       WHERE session_id = ? AND objects.word = ?');
+
+			$result = new DupeWordCheck();
+			$result->subjectCount = $checkSuggestionS->select($this->sessionId, $initialSubject);
+			$result->verbCount    = $checkSuggestionV->select($this->sessionId, $initialVerb);
+			$result->objectCount  = $checkSuggestionO->select($this->sessionId, $initialObject);
+			$result->allThree     = $checkSuggestion3->select($this->sessionId, $initialSubject, $initialVerb, $initialObject);
+			if ($result->subjectCount < 4)
+				$result->subjectCount = null;
+			else
+				$this->log->log(' ** bad subject. ');
+			if ($result->verbCount < 4)
+				$result->verbCount = null;
+			else
+				$this->log->log(' ** bad verb. ');
+			if ($result->objectCount < 4)
+				$result->objectCount = null;
+			else
+				$this->log->log(' ** bad object. ');
+			if ($result->allThree < 2)
+				$result->allThree = null;
+			else
+				$this->log->log(' ** bad suggestion. ');
+			if (!$result->subjectCount && !$result->verbCount && !$result->objectCount && !$result->allThree)
+				$result = null;
+			return $result;
+		}
+		catch (Throwable $ex)
+		{
+			$this->saveError($ex);
+			return null;
 		}
 	}
 

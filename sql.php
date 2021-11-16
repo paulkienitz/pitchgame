@@ -79,19 +79,21 @@ class SqlStatement
 	protected mysqli       $marie;				// a mysqli connection
 	protected string       $query;				// the text of the SQL statement to prepare
 	protected string       $paramTypes;			// binding types string -- length must equal number of "?" placeholders in query
-	protected ?mysqli_stmt $statement = null;	// our raison-d'etre, after prepAndBind() is called
+	protected ?mysqli_stmt $statement = null;	// our raison-d'etre, after bind() is called
 	protected ?SqlLogger   $logger;             // passed in so statements can share
 
-	public function __construct(mysqli &$marie, ?SqlLogger $logger, string $paramType, string $query)
+	public function __construct(mysqli &$marie, ?SqlLogger $logger, string $paramType, string $query, bool $prepEarly = false)
 	{
 		$this->marie     = $marie;
 		$this->paramType = $paramType;
 		$this->query     = $query;
 		$this->logger    = $logger;
+		if ($prepEarly)
+			$this->statement = $this->marie->prepare($this->query);
 	}
 
 	// call this first in any derived class method that executes the statement
-	protected function prepAndBind(&...$params)
+	protected function bind(&...$params)
 	{
 		// lazy evaluation -- we only prepare the statement if it gets used
 		$this->log("$this->query:\n-- already prepared? " . SqlLogger::byn(!!$this->statement));
@@ -129,7 +131,7 @@ class Selector extends SqlStatement
 	public function select(...$params): bool   // call this, then call getRow one or more times
 	{
 		$this->exhausted = false;
-		$this->prepAndBind(...$params);
+		$this->bind(...$params);
 		$this->log("Executing select with params ");
 		$this->logParams($params);
 		$result = $this->statement->execute();
@@ -165,7 +167,7 @@ class ScalarSelector extends SqlStatement
 	public function select(...$params)			// statement must return only one row containing only one field
 	{
 		$result = '';
-		$this->prepAndBind(...$params);
+		$this->bind(...$params);
 		$this->log('Binding result ');
 		$this->statement->bind_result($result);
 		$this->log("and executing scalar query with params ");
@@ -186,7 +188,7 @@ class Inserter extends SqlStatement
 {
 	public function insert(...$params)			// table being inserted to must have an auto-increment column for this to return a value
 	{
-		$this->prepAndBind(...$params);
+		$this->bind(...$params);
 		$this->log('Executing insert of values ');
 		$this->logParams($params);
 		$r = $this->statement->execute();
@@ -199,7 +201,7 @@ class Updater extends SqlStatement		// also use this for delete statements, or i
 {
 	public function update(...$params): bool
 	{
-		$this->prepAndBind(...$params);
+		$this->bind(...$params);
 		$this->log('Executing update with values ');
 		$this->logParams($params);
 		$result = $this->statement->execute();
