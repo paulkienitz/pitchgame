@@ -76,4 +76,5 @@ Also use it to protect `moderator.php` with a password.
 (You’ll have to set up the user accounts and passwords with some other administrative tool.)
 I have provided a sample version of `.htaccess` which does these things; if you use a web host other than Apache, you will have to devise an alternative.
 Adjust the other constants in `pitch-configure.php` if you want to use recaptcha.
+Uploading spare03min.js from my [SPARE](https://github.com/paulkienitz/SPARE) repo is recommended but not essential.
 Then upload the other files and test it out.
