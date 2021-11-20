@@ -2,13 +2,14 @@
 <?php
 // This page contains all views for the gameplay loop seen by regular players.
 
-// TODO: make dupe word validation more friendly to back and refresh buttons
+// TODO: 
 //
 // BUGS: "with pits" queries for reviews or faves are intermittently slow, but still test as fast in phpmyadmin
 //
 // TEST: 
 //
 // IDEA: banner text curved cinemascope style via svg?
+//       can dupe word validations be more friendly to back and refresh buttons?  do they need to be?
 //       support sso identity, and use for admin... or simple password if that's too hard? or local pwd as max security?
 //       team play!  need new session handling, challenge, and review queries...
 //       real-time team play needs status display with push updates... chat window?  scheduled future invite?

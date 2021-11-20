@@ -1,59 +1,29 @@
 # The Movie Pitch Game
 ### a web-based game of fun and creativity for movie buffs, implemented in PHP
 
-_No license yet.  Terms of sharing are yet to be decided.  For now, do not use._
-_EXCEPTION: the file sql.php is free of all licenses and available to use in any way._
-
-First checkin is prerelease version 0.1, which is the first to have a complete cycle of forms representing normal progress through the game.
-It does not yet have the side branches which would be used for reporting bad inputs for moderation.
-It lacks almost all cosmetics, except on one page.
-A page of background and instructions about the game is written but is not yet accessible for display.
-
-Second checkin is prerelease version 0.2, in which the game is close to complete for ordinary players.
-It adds nicer cosmetics, a closeable popup for the instructions, the ability to reject spam words, and tracking of moderation requests.
-Some internal features, such as logging of database activity, have been improved.
-Exceptions are recorded in the system’s normal PHP error log.
-
-Third checkin (and a little followup I’m not counting) is prerelease 0.3, which adds a moderators’ page for spam abatement.
-Internally, started adding type hinting, which would increase over several checkins.
-
-Fourth checkin, prerelease 0.4, added no significant features but checked a lot of small updates off of the todo list.
-
-Fifth checkin, prerelease 0.5, adds moderator review of a user’s full history, with options to block the user or purge their entire contribution.
-
-Sixth through ninth checkins add improved moderator ability to review user histories and recaptcha support, plus fixes and refactors.
-I'm moving to a finer grained checkin schedule now and not using prerelease numbers.
-
-I'll call it prerelease 0.6 at the point where I started adding team features.
-None of them are ready to use yet, but one thing it does add is a prompt to make new players give a name, which is mandatory in team mode and can be required in non-team mode by setting a constant.
-
-For the next checkin I added `configure.php` as a place to put configuration options and credentials.
-Then I gave the input controls some color and styling.
-
-Yet to be added are more cosmetics, proper login (maybe including SSO), and the team play feature.
-
-----
+**This game and its source code may be freely used for noncommercial purposes (MIT License with Commons Clause).**
 
 The normal path through the game is as follows.
-The number in brackets is the one used internally to designate the view state.
 
-[0] The initial state of the screen displays a welcome message and prompts you for a noun, a verb, and a noun.
+0. If you have not launched the game before (or are on a new device), it may ask you to give a name, depending on a config option.
 
-[1] After saving your noun, verb, and noun, the form presents a different noun, verb, and noun, and prompts you to give a movie title and description — a pitch — based on that brief idea.
+1. In regular play, the initial state of the screen displays a welcome message and prompts you for a noun, a verb, and a noun.
+
+2. After saving your noun, verb, and noun, the form presents a different noun, verb, and noun, and prompts you to give a movie title and description — a pitch — based on that brief idea.
 You can also include an optional signature.
 
-[2] After saving your pitch, it lists several previous pitches from other players, and lets you rate each one from one to four stars (or mark them as spam).
+3. After saving your pitch, it lists several previous pitches from other players, and lets you rate each one from one to four stars (or mark them as spam).
 
-[4/5] After submitting your ratings, or setting no ratings and just clicking a continuation button, it shows a thank you message and prompts you for a noun, verb, and noun again, as in step 0, thereby closing the loop.
+4. After submitting your ratings, or setting no ratings and just clicking a continuation button, it shows a thank you message and prompts you for a noun, verb, and noun again, as in step 1, thereby closing the loop.
 
 Abnormal paths can add these steps:
 
-[3] If it runs out of movie pitches that you have neither written nor rated, then instead of showing you pitches to rate, it instead shows you pitches you've already rated with at least three stars... “old favorites”.
+5. If it runs out of movie pitches that you have neither written nor rated, then instead of showing you pitches to rate, it instead shows you pitches you've already rated with at least three stars... “old favorites”.
 (The game currently fails if none are found.)
 
-[6] Step 1 offers you a link to complain about the words you received.
+6. Step 2 offers you a link to complain about the words you received.
 This link takes you to a page where you can mark any or all of the three words as not a valid noun or not a valid verb.
-After you do so it takes you back to step 1, with any word you flagged replaced with a new one.
+After you do so it takes you back to step 2, with any word you flagged replaced with a new one.
 
 Validation errors reprompt you with the same screen, with messages about required fields or whatever else the issue might be.
 Database errors exit to a screen which, for now, displays an exception message openly, followed by a log of database activity in the current postback.
@@ -67,14 +37,16 @@ If no moderation requests are left, the starting page lists users who have had s
 
 ### How to set up
 
-You'll need a host with PHP and MySql or MariaDB.
+You'll need a host with PHP and MySql (or MariaDB).
 Use `pitchgame tables.sql` to create the database, but don't upload that file to the web host.
-Put your database host and password in `pitch-configure.php`.
+You will need to set up the database username and password by whatever means your web host supports.
+Put your database host, username, and password in `pitch-configure.php`.
 Use `.htaccess` or equivalent to forbid downloading `pitch-configure.php` itself.
 Also use it to make `pitchgame.php` the default index page in its directory, if that's desirable, i.e. if the game is in its own separate directory.
 Also use it to protect `moderator.php` with a password.
 (You’ll have to set up the user accounts and passwords with some other administrative tool.)
-I have provided a sample version of `.htaccess` which does these things; if you use a web host other than Apache, you will have to devise an alternative.
+I have provided a sample version of `.htaccess` which does these things.
+If you use a web host other than Apache, you will have to devise an alternative.
 Adjust the other constants in `pitch-configure.php` if you want to use recaptcha.
 Uploading spare03min.js from my [SPARE](https://github.com/paulkienitz/SPARE) repo is recommended but not essential.
 Then upload the other files and test it out.

@@ -1,7 +1,8 @@
 <?php   // *** Be sure to configure your site access to forbid downloading this file. ***
 
 // credentials:
-define('DB_HOST',        'sample.host');     // usually 'localhost'
+define('DB_HOST',        'sample.host');         // usually 'localhost'
+define('DB_USER',        'sample.username');     // usually 'pitchgame'
 define('DB_PASSWORD',    'sample!password');
 define('CAPTCHA_KEY',    'sample-recaptcha-site-key-xxxxxxxxxxxxxx');
 define('CAPTCHA_SECRET', 'sample-recaptcha-secret-key-zzzzzzzzzzzz');
