@@ -5,10 +5,12 @@
 // TODO: 
 //
 // BUGS: "with pits" queries for reviews or faves are intermittently slow, but still test as fast in phpmyadmin
+//       inconsistent closebox alignment - bad in chrome/A, slightly off elsewhere... replace &times; with svg?
 //
 // TEST: 
 //
 // IDEA: banner text curved cinemascope style via svg?
+//       can log support displaying sql literals in a different style? or as expandable abbrevs?
 //       can dupe word validations be more friendly to back and refresh buttons?  do they need to be?
 //       support sso identity, and use for admin... or simple password if that's too hard? or local pwd as max security?
 //       team play!  need new session handling, challenge, and review queries...
@@ -57,6 +59,7 @@ $signature = '';
 $dupeWords = null;              // structure defined in pitchdata.php, null if valid
 $challenge = null;				// will contain three words and their IDs, structure defined in pitchdata.php
 $pitchesToReview = [];			// array of Pitch structures defined in pitchdata.php
+$oldFavoritePitches = [];
 
 
 // ---- process get/post args and do DB operations
@@ -223,6 +226,8 @@ if (isset($_POST['formtype']) && !$databaseFailed)		// extract form values, vali
 }
 if (($team || REQUIRE_NAME) && !$con->nickname)
 	$pagestate = ASKNAME;
+
+header('cache-control: no-cache');
 ?>
 <html>
 <head>
@@ -235,7 +240,7 @@ if (($team || REQUIRE_NAME) && !$con->nickname)
 	<title>The Movie Pitch Game!</title>
 	<link rel="preconnect" href="https://fonts.googleapis.com">
 	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-	<link href="https://fonts.googleapis.com/css2?family=Arvo&family=Paprika&family=ABeeZee&family=Acme&family=Comfortaa&family=Lemonada&display=swap" rel="stylesheet"> 
+	<link href="https://fonts.googleapis.com/css2?family=Arvo&family=ABeeZee&family=Lemonada&display=swap" rel="stylesheet"> 
 	<link rel="stylesheet" href="pitchgame.css">
 	<script type="text/javascript" src="pitchgame.js"></script>
 	<?php if ($con->needsCaptcha) { ?>
@@ -280,7 +285,8 @@ if (($team || REQUIRE_NAME) && !$con->nickname)
 
 <main>
 	<h1 class=title>The Movie Pitch Game!</h1>
-	<h3 class=subtitle>invented by <a href='http://kopictureshow.com' target='_blank'>KO Rob</a></h3>
+	<h3 class=subtitle>invented by <a href='http://kopictureshow.com' target='_blank'>KO Rob</a>
+	    — <a href='' id=showhints>how to play</a></h3>
 	
 <?php if ($databaseFailed) { ?>
 
@@ -291,7 +297,9 @@ if (($team || REQUIRE_NAME) && !$con->nickname)
 	will investigate the problem and try to prevent recurrences.
 
 	</p>
+	<?php if ($con->hasDebugAccess) { ?>
 	<div class=exceptional><?=nl2br(enc($con->lastError))?></div>
+	<?php } ?>
 
 <?php } else if ($con->isBlocked) { ?>
 
@@ -307,8 +315,7 @@ if (($team || REQUIRE_NAME) && !$con->nickname)
 	a short sentence with a verb in the middle, like “man bites dog” or “Martians
 	invade Belgium”.&ensp;Your job is to pitch a movie based on that idea — that
 	is, to describe an unmade film in a paragraph or two, and make it sound like
-	something people would want to see.&ensp;For further explanation,
-	<a href='' id=showhints>click here</a>.
+	something people would want to see.
 
 	</p><p>
 
@@ -329,7 +336,7 @@ if (($team || REQUIRE_NAME) && !$con->nickname)
 	<?php } ?>
 
 	</p>
-	<form method="POST" class=fields>
+	<form method="POST" class=fields autocomplete=off>
 		<input type=hidden name=formtype value="initialwords" />
 		<input type=hidden name=variant value='<?=$pagestate?>' />
 		<input type=hidden name=seed value="<?=rand(1000000, 2000000000)?>" />
@@ -397,7 +404,7 @@ if (($team || REQUIRE_NAME) && !$con->nickname)
 	</h2>
 	<div class=modery>(<a href='' id=moderato>click here</a> if one or more words are invalid)</div>
 
-	<form method="POST" id=pitchform class=fields>
+	<form method="POST" id=pitchform class=fields autocomplete=off>
 		<input type=hidden name=formtype id=formtype value='pitch' />
 		<input type=hidden name=idea value='<?=enc($idea)?>' />
 		<input type=hidden name=challenge value='<?=enc(serialize($challenge))?>' />
@@ -434,7 +441,7 @@ if (($team || REQUIRE_NAME) && !$con->nickname)
 	you want, leave a star rating for any or all of the pitches below.
 
 	</p>
-	<form method="POST">
+	<form method="POST" autocomplete=off>
 		<input type=hidden name=formtype value='review' />
 		<input type=hidden name=pitchesToReview value='<?=enc(serialize($pitchesToReview))?>' />
 		<input type=hidden name=seed value="<?=$seed?>" />
@@ -443,8 +450,8 @@ if (($team || REQUIRE_NAME) && !$con->nickname)
 	<?php foreach ($pitchesToReview as $pitcher) { ?>
 		<blockquote class=pitch>
 			<div>
-				<i>from the idea “<?=enc($pitcher->subject)?>
-			    <?=enc($pitcher->verb)?> <?=enc($pitcher->object)?>”:</i>
+				<i>from the idea “<?=enc($pitcher->c->subject)?>
+			    <?=enc($pitcher->c->verb)?> <?=enc($pitcher->c->object)?>”:</i>
 			</div>
 			<h3 class=favetitle><?=enc($pitcher->title)?></h3>
 			<p style='white-space: pre-wrap' class=lit><?=enc($pitcher->pitch)?></p>
@@ -474,14 +481,14 @@ if (($team || REQUIRE_NAME) && !$con->nickname)
 	pitches.&ensp;Instead, here are a few of your old favorites.
 
 	</p>
-	<form method="POST">
+	<form method="POST" autocomplete=off>
 		<input type=hidden name=formtype value='favorites' />
 		<button>Play Another Round</button>
 
 	<?php foreach ($oldFavoritePitches as $pitcher) { ?>
 		<blockquote class=pitch>
 			<div>
-				<i>from the idea “<?=enc($pitcher->subject)?> <?=enc($pitcher->verb)?> <?=enc($pitcher->object)?>”:</i>
+				<i>from the idea “<?=enc($pitcher->c->subject)?> <?=enc($pitcher->c->verb)?> <?=enc($pitcher->c->object)?>”:</i>
 			</div>
 			<div class=uppergap>
 				<h3 class=favetitle>
@@ -536,7 +543,7 @@ if (($team || REQUIRE_NAME) && !$con->nickname)
 	So with that in mind, please mark the words that are invalid, if any:
 
 	</p>
-	<form method="POST" id=pitchform class=fields>
+	<form method="POST" id=pitchform class=fields autocomplete=off>
 		<input type=hidden name=formtype id=formtype value='reportbad' />
 		<input type=hidden name=seed value="<?=$seed?>" />
 		<input type=hidden name=idea value='<?=enc($idea)?>' />
@@ -565,8 +572,7 @@ if (($team || REQUIRE_NAME) && !$con->nickname)
 	middle, like “man bites dog” or “Martians invade Belgium”.&ensp;The words you
 	get are each supplied by one if your fellow players.&ensp;Your job is to pitch
 	a movie based on that idea — that is, to describe an unmade film in a paragraph
-	or two, and make it sound like something people would want to see.&ensp;For
-	further explanation, <a href='' id=showhints>click here</a>.
+	or two, and make it sound like something people would want to see.
 
 	</p><p>
 
@@ -578,8 +584,7 @@ if (($team || REQUIRE_NAME) && !$con->nickname)
 	a short sentence with a verb in the middle, like “man bites dog” or “Martians
 	invade Belgium”.&ensp;Your job is to pitch a movie based on that idea — that
 	is, to describe an unmade film in a paragraph or two, and make it sound like
-	something people would want to see.&ensp;For further explanation,
-	<a href='' id=showhints>click here</a>.
+	something people would want to see.
 
 	</p><p>
 
@@ -588,7 +593,7 @@ if (($team || REQUIRE_NAME) && !$con->nickname)
 	<?php } ?>
 
 	</p>
-	<form method="POST">
+	<form method="POST" autocomplete=on>
 		<input type=hidden name=formtype value="name" />
 		<div class=narrowgowides>
 			<label for=subject>Name:</label>
@@ -618,12 +623,12 @@ if (($team || REQUIRE_NAME) && !$con->nickname)
 <?php } ?>
 </main>
 
-<?php if ($con->hasDebugAccess && ($pagestate == 1 || $pagestate == 2)) { ?>
+<?php if ($con->hasDebugAccess && !$databaseFailed && ($pagestate == 1 || $pagestate == 2)) { ?>
 <p style='margin-top: 2em'>
 	<a href='' id=randomize class=meta>randomize</a>
 </p>
 <?php }
-      if ($con->hasDebugAccess) { ?>
+    if ($con->hasDebugAccess) { ?>
 <p>
 	<a href='' id=showLog class=meta>show DB log</a>
 </p>

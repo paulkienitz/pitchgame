@@ -18,13 +18,14 @@ class Moderated
 }
 
 // A moderation request applies either to a pitch or to challenge words.
-class ModerationRequest extends Pitch
+class ModerationRequest
 {
 	public ?int       $moderationId;
 	public ?string    $whenRequested;
 	public ?int       $requestorSessionId;
 	public ?string    $requestorName;
 	public ?int       $flagDupes;
+	public ?Pitch     $p;
 	public ?Moderated $pit;
 	public ?Moderated $sub;
 	public ?Moderated $vrb;
@@ -35,6 +36,7 @@ class SessionSummary
 {
 	public ?int    $blockedBy;
 	public ?bool   $isTest;
+	public ?bool   $isDebugger;
 	public ?string $ipAddress;
 	public ?string $userAgent;
 	public ?string $nickname;
@@ -75,7 +77,7 @@ class HistoryPart
 	public function live() { return $this->deleted === false && !$this->modStatus && $this->flagCount === 0; }
 }
 
-class HistoryEntry extends Pitch
+class HistoryEntry
 {
 	public ?string      $whenPosted;
 	public ?float       $whenPostedUnixTime;
@@ -84,11 +86,12 @@ class HistoryEntry extends Pitch
 	public ?int         $acceptedBy;
 	public ?int         $rejectedBy;
 	public ?string      $rejectNickname;
+	public ?Pitch       $what;
 	public ?HistoryPart $p;
 	public ?HistoryPart $s;
 	public ?HistoryPart $v;
 	public ?HistoryPart $o;
-	public function deleted() { return $this->pitchId ? $this->p->deleted :
+	public function deleted() { return $this->what->pitchId ? $this->p->deleted :
 	                                   (!isset($this->s->deleted) || $this->s->deleted) &&
 	                                   (!isset($this->v->deleted) || $this->v->deleted) &&
 	                                   (!isset($this->o->deleted) || $this->o->deleted); }
@@ -178,6 +181,8 @@ class PitchGameAdminConnection extends PitchGameConnection
 			$results = [];
 			do {
 				$rq = new ModerationRequest();
+				$rq->p = new Pitch();
+				$rq->p->c = new Challenge();
 				$rq->pit = new Moderated();
 				$rq->sub = new Moderated();
 				$rq->vrb = new Moderated();
@@ -188,8 +193,9 @@ class PitchGameAdminConnection extends PitchGameConnection
 				                               $rq->pit->flagCount, $rq->sub->flagCount, $rq->vrb->flagCount, $rq->obj->flagCount,
 				                               $rq->pit->when,      $rq->sub->when,      $rq->vrb->when,      $rq->obj->when,
 				                               /*pit->dupes null,*/ $rq->sub->dupes,     $rq->vrb->dupes,     $rq->obj->dupes,
-				                               /*inherited fields:*/ $rq->pitchId, $rq->title, $rq->pitch, $rq->signature,
-				                               $rq->subjectId, $rq->subject, $rq->verbId, $rq->verb, $rq->objectId, $rq->object);
+				                               $rq->p->pitchId, $rq->p->title, $rq->p->pitch, $rq->p->signature,
+				                               $rq->p->c->subjectId, $rq->p->c->subject, $rq->p->c->verbId, $rq->p->c->verb,
+				                               $rq->p->c->objectId, $rq->p->c->object);
 				if ($gotten)
 					$results[] = $rq;
 			} while ($gotten);
@@ -207,7 +213,7 @@ class PitchGameAdminConnection extends PitchGameConnection
 		try
 		{
 			$getStats = new Selector($this->marie, $this->log, 'i', '
-			    WITH ses AS ( SELECT session_id, is_test, blocked_by, nickname, signature, ip_address, useragent, when_created, when_last_used,
+			    WITH ses AS ( SELECT session_id, is_test, has_debug_access, blocked_by, nickname, signature, ip_address, useragent, when_created, when_last_used,
 			                         when_last_reviewed, cast(unix_timestamp(when_last_reviewed) AS double) AS when_last_reviewed_unix
 			                    FROM sessions s      -- later, add team stats
 			                   WHERE session_id = ? ),
@@ -234,7 +240,8 @@ class PitchGameAdminConnection extends PitchGameConnection
 			                         sum(CASE WHEN accepted_by IS NULL AND rejected_by IS NULL THEN 1 ELSE 0 END) pending_reqs_ct
 			                    FROM ses INNER JOIN 
 			                         moderations USING (session_id) )
-			    SELECT blocked_by, is_test, nickname, signature, ip_address, useragent, when_created, when_last_used, when_last_reviewed, when_last_reviewed_unix,
+			    SELECT blocked_by, is_test, has_debug_access, nickname, signature, ip_address, useragent,
+			           when_created, when_last_used, when_last_reviewed, when_last_reviewed_unix,
 			           idea_ct, earliest_idea, latest_idea, word_shown_ct, word_flag_ct, word_deleted_ct, word_moderated_ct,
 			           pitch_ct, earliest_pitch, latest_pitch, pitch_shown_ct, pitch_flag_ct, pitch_deleted_ct, pitch_moderated_ct,
 			           total_reqs_ct, earliest_req, latest_req, accepted_reqs_ct, rejected_reqs_ct, pending_reqs_ct
@@ -243,7 +250,7 @@ class PitchGameAdminConnection extends PitchGameConnection
 			if ($getStats->select($sessionId))
 			{
 				$result = new SessionSummary();
-				if (!$getStats->getRow($result->blockedBy, $result->isTest, $result->nickname, $result->signature, $result->ipAddress, $result->userAgent,
+				if (!$getStats->getRow($result->blockedBy, $result->isTest, $result->isDebugger, $result->nickname, $result->signature, $result->ipAddress, $result->userAgent,
 				                       $result->whenCreated, $result->whenLastUsed, $result->whenLastReviewed, $result->whenLastReviewedUnixTime,
 				                       $result->ideasCount, $result->ideasEarliest, $result->ideasLatest, $result->wordsShownCount,
 				                       $result->wordsFlaggedCount, $result->wordsDeletedCount, $result->wordsModeratedCount,
@@ -316,17 +323,20 @@ class PitchGameAdminConnection extends PitchGameConnection
 			$results = [];
 			do {
 				$h = new HistoryEntry();
+				$h->what = new Pitch();
+				$h->what->c = new Challenge();
 				$h->p = new HistoryPart();
 				$h->s = new HistoryPart();
 				$h->v = new HistoryPart();
 				$h->o = new HistoryPart();
 				$gotten = $getHistory->getRow($h->whenPosted, $h->whenPostedUnixTime, $h->suggestionId,
-				                              $h->subjectId, $h->verbId, $h->objectId, $h->subject, $h->verb, $h->object,
+				                              $h->what->c->subjectId, $h->what->c->verbId, $h->what->c->objectId,
+				                              $h->what->c->subject, $h->what->c->verb, $h->what->c->object,
 				                              $h->s->shownCount, $h->v->shownCount, $h->o->shownCount,
 				                              $h->s->flagCount, $h->v->flagCount, $h->o->flagCount,
 				                              $h->s->modStatus, $h->v->modStatus, $h->o->modStatus,
 				                              $h->s->deleted, $h->v->deleted, $h->o->deleted,
-				                              $h->pitchId, $h->title, $h->pitch, $h->signature,
+				                              $h->what->pitchId, $h->what->title, $h->what->pitch, $h->what->signature,
 				                              $h->p->shownCount, $h->p->flagCount, $h->p->modStatus, $h->p->deleted,
 				                              $h->moderationId, $h->acceptedBy, $h->rejectedBy, $h->rejectNickname);
 				if ($gotten)
@@ -379,10 +389,10 @@ class PitchGameAdminConnection extends PitchGameConnection
 				$this->judgeObject = new Updater($this->marie, $this->log, 'isi',
 				    'UPDATE objects SET is_deleted = ?, moderation_status = ? WHERE object_id = ?');
 			}
-			$this->applyJudgment($judgmentP, $modreq->pitchId,   $modreq->moderationId, $this->absolvePitch,   $this->judgePitch);
-			$this->applyJudgment($judgmentS, $modreq->subjectId, $modreq->moderationId, $this->absolveSubject, $this->judgeSubject);
-			$this->applyJudgment($judgmentV, $modreq->verbId,    $modreq->moderationId, $this->absolveVerb,    $this->judgeVerb);
-			$this->applyJudgment($judgmentO, $modreq->objectId,  $modreq->moderationId, $this->absolveObject,  $this->judgeObject);
+			$this->applyJudgment($judgmentP, $modreq->p->pitchId,      $modreq->moderationId, $this->absolvePitch,   $this->judgePitch);
+			$this->applyJudgment($judgmentS, $modreq->p->c->subjectId, $modreq->moderationId, $this->absolveSubject, $this->judgeSubject);
+			$this->applyJudgment($judgmentV, $modreq->p->c->verbId,    $modreq->moderationId, $this->absolveVerb,    $this->judgeVerb);
+			$this->applyJudgment($judgmentO, $modreq->p->c->objectId,  $modreq->moderationId, $this->absolveObject,  $this->judgeObject);
 			return true;
 		}
 		catch (Throwable $ex)

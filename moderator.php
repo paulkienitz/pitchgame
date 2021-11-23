@@ -179,18 +179,17 @@ else if (isset($_POST['formtype']) && !$databaseFailed)		// extract form values,
 			$history = unserialize($_POST['history']);
 			foreach ($history as $h)
 			{
-				$pitcher = !!$_POST["attn_p$h->pitchId"];
-				$suggester = !!$_POST["attn_g$h->suggestionId"];
-				if ($pitcher && $h->p->live())
+				if ($h->p->live())
 				{
-					if ($con->ratePitch($h->pitchId, -1))
-						++$pitchesFlagged;
-					else
-						$databaseFailed = true;
+					if (!!$_POST["attn_p{$h->what->pitchId}"])
+						if ($con->ratePitch($h->what->pitchId, -1))
+							++$pitchesFlagged;
+						else
+							$databaseFailed = true;
 				}
-				else if ($suggester)
+				else if (!!$_POST["attn_g$h->suggestionId"])
 				{
-					if ($con->flagWordsForModeration($h, $h->s->live(), $h->v->live(), $h->o->live()))
+					if ($con->flagWordsForModeration($h->what->c, $h->s->live(), $h->v->live(), $h->o->live()))
 						$wordsFlagged += (int) $h->s->live() + (int) $h->v->live() + (int) $h->o->live();
 					else
 						$databaseFailed = true;
@@ -256,6 +255,8 @@ if (!$databaseFailed)
 		$databaseFailed = !is_array($suspiciousSessions);
 	}
 }
+
+header('cache-control: no-cache');
 ?>
 <html>
 <head>
@@ -267,7 +268,7 @@ if (!$databaseFailed)
 	<title>Admin for the Movie Pitch Game</title>
 	<link rel="stylesheet" href="pitchgame.css">
 	<script type="text/javascript" src="pitchgame.js"></script>
-	<script type="text/javascript" src="/rockets/spare03.js"></script>
+	<script type="text/javascript" src="spare03.js"></script>
 </head>
 
 
@@ -342,17 +343,17 @@ if (!$databaseFailed)
 				  ($modreq->flagDupes > 1 ? '(and one other)' : '')?-->
 				flagged this:
 			</div>
-		<?php if ($modreq->pitchId) { ?>
+		<?php if ($modreq->p->pitchId) { ?>
 			<p>
-				— Pitch <?=attribution($modreq->pitchId, $modreq->pit->when, $modreq->pit->sessionId, $modreq->pit->nickname, $modreq->pit->flagCount)?>:
+				— Pitch <?=attribution($modreq->p->pitchId, $modreq->pit->when, $modreq->pit->sessionId, $modreq->pit->nickname, $modreq->pit->flagCount)?>:
 			</p>
 			<!-- div>
-				Idea: “<?=enc($modreq->subject)?> <?=enc($modreq->verb)?> <?=enc($modreq->object)?>”
+				Idea: “<?=enc($modreq->p->c->subject)?> <?=enc($modreq->p->c->verb)?> <?=enc($modreq->p->c->object)?>”
 			</div -->
 			<blockquote>
-				<div>Title: <span class=lit>“<?=enc($modreq->title)?>”</span></div>
-				<div>Pitch: <span class=lit>“<?=enc($modreq->pitch)?>”</div>
-				<div>Signature: <?=$signature ? '<span class=lit>“' . enc($modreq->signature) . '”</span>' : '(none)'?></div>
+				<div>Title: <span class=lit>“<?=enc($modreq->p->title)?>”</span></div>
+				<div>Pitch: <span class=lit>“<?=enc($modreq->p->pitch)?>”</div>
+				<div>Signature: <?=$modreq->p->signature ? '<span class=lit>“' . enc($modreq->p->signature) . '”</span>' : '(none)'?></div>
 			</blockquote>
 			<div class=qq>Is that a valid pitch?</div>
 			<div>
@@ -365,15 +366,15 @@ if (!$databaseFailed)
 			<label><input type=radio name='modreq_P_<?=$modreq->moderationId?>' value='' checked /> (no answer)</label>
 			</div>
 		<?php } else {
-			if ($modreq->subjectId)
-				echo askWord('Subject noun', $modreq->subjectId, $modreq->sub->when, $modreq->sub->sessionId, $modreq->sub->nickname,
-				             $modreq->sub->flagCount, $modreq->sub->dupes, $modreq->subject, $modreq->moderationId);
-			if ($modreq->verbId)
-				echo askWord('Verb', $modreq->verbId, $modreq->vrb->when, $modreq->vrb->sessionId, $modreq->vrb->nickname,
-				             $modreq->vrb->flagCount, $modreq->vrb->dupes, $modreq->verb, $modreq->moderationId);
-			if ($modreq->objectId)
-				echo askWord('Object noun', $modreq->objectId, $modreq->obj->when, $modreq->obj->sessionId, $modreq->obj->nickname,
-				             $modreq->obj->flagCount, $modreq->obj->dupes, $modreq->object, $modreq->moderationId);
+			if ($modreq->p->c->subjectId)
+				echo askWord('Subject noun', $modreq->p->c->subjectId, $modreq->sub->when, $modreq->sub->sessionId, $modreq->sub->nickname,
+				             $modreq->sub->flagCount, $modreq->sub->dupes, $modreq->p->c->subject, $modreq->moderationId);
+			if ($modreq->p->c->verbId)
+				echo askWord('Verb', $modreq->p->c->verbId, $modreq->vrb->when, $modreq->vrb->sessionId, $modreq->vrb->nickname,
+				             $modreq->vrb->flagCount, $modreq->vrb->dupes, $modreq->p->c->verb, $modreq->moderationId);
+			if ($modreq->p->c->objectId)
+				echo askWord('Object noun', $modreq->p->c->objectId, $modreq->obj->when, $modreq->obj->sessionId, $modreq->obj->nickname,
+				             $modreq->obj->flagCount, $modreq->obj->dupes, $modreq->p->c->object, $modreq->moderationId);
 		} ?>
 		</div>
 	<?php } ?>
@@ -437,7 +438,7 @@ if (!$databaseFailed)
 <?php } else if (($pagestate == POPUP || $pagestate == HISTORY) && !$userSummary) { ?>
 
 	<div id=userSummary>
-		<p>User <?=enc($_GET['sessionId'])?> not found.</p>   <!-- XXX add a hash to prevent enumeration? -->
+		<p>User <?=enc($_GET['sessionId'] ?: $_POST['sessionid'])?> not found.</p>   <!-- XXX add a hash to prevent enumeration? -->
 	</div>
 
 <?php } else if ($pagestate == POPUP || $pagestate == HISTORY) { ?>
@@ -451,7 +452,9 @@ if (!$databaseFailed)
 	<div id=userSummary>
 		<table class=userSummary>
 			<tr><td>Session status:</td>
-			    <td>#<?=$sessionId?> is <?=$userSummary->blockedBy ? "<span class=warn>BLOCKED by $userSummary->blockedBy</span>" : ($userSummary->isTest ? 'TESTER' : 'active')?>
+			    <td>#<?=$sessionId?> is <?=$userSummary->blockedBy ? "<span class=warn>BLOCKED by $userSummary->blockedBy</span>"
+			                                                       : ($userSummary->isDebugger ? 'DEBUGGER'
+			                                                          : ($userSummary->isTest ? 'TESTER' : 'active'))?>
 			        — <?=$userSummary->signature && $userSummary->signature != $userSemmary->nickname
 			             ? 'signature <span class=lit>“' . enc($userSummary->signature) . ($userSummary->nickname ? '”</span>, name <span class=lit>“' . enc($userSummary->nickname) : '') . '”</span>'
 			             : ($userSummary->nickname ? '<span class=lit>“' . enc($userSummary->nickname) . '”</span>' : 'no name or signature')?></td>
@@ -516,6 +519,12 @@ if (!$databaseFailed)
 	to completely purge everything the user has submitted.
 
 	</p>
+	<?php if ($userSummary->isTest || $userSummary->isDebugger) { ?>
+	<p>
+	<strong>NOTE that this user <?=$userSummary->isDebugger ? 'has debug access' : 'is an official tester'?>.</strong>&ensp;Bad
+	submissions may have been entered as part of testing.
+	</p>
+	<?php } ?>
 	<form method="POST" class=meta>
 		<input type=hidden name=formtype id=formtype value='judgeuser' />
 		<input type=hidden name=sessionid id=lastSessionId value='<?=$sessionId?>' />
@@ -523,10 +532,13 @@ if (!$databaseFailed)
 		<input type=hidden name=history value='<?=enc(serialize($history))?>' />
 		<?php foreach ($history as $h) { ?>
 			<?php if ($watermark && $watermark > $h->whenPostedUnixTime) { ?>
-		<p>— Reviewed by moderator <?=enc($userSummary->whenLastReviewed)?> —</p>
-			<?php $watermark = null; } ?>
+		<p>— Reviewed by moderator <?=enc($userSummary->whenLastReviewed)?> —
+		   <a href='' id=showOldHistory>show earlier history</a> —
+		</p>
+		<div id=oldHistory style='display: none'>
+			<?php $watermark = -1.0; } ?>
 		<blockquote class="pitch his <?=$h->deleted() ? ' dark' : ''?><?=$h->rejectedBy ? ' malev' : ($h->acceptedBy ? ' benev' : '')?>">
-			<?php if ($h->pitchId) { ?>
+			<?php if ($h->what->pitchId) { ?>
 				<?php if ($h->moderationId) { ?>
 				<div class=lowergap>
 					Flagged this pitch <?=$h->whenPosted . judgment($h->p->modStatus, $h->p->deleted, ' (', ')') .
@@ -538,12 +550,12 @@ if (!$databaseFailed)
 				</div>
 				<?php } ?>
 				<div <?=$h->p->deleted ? 'class=deleted' : ''?>>
-					<div>Title: <span class=lit>“<?=enc($h->title)?>”</span></div>
-					<div>Pitch: <span class=lit>“<?=enc($h->pitch)?>”</div>
-					<div>Signature: <?=$signature ? '<span class=lit>“' . enc($h->signature) . '”</span>' : '(none)'?></div>
+					<div>Title: <span class=lit>“<?=enc($h->what->title)?>”</span></div>
+					<div>Pitch: <span class=lit>“<?=enc($h->what->pitch)?>”</div>
+					<div>Signature: <?=$h->what->signature ? '<span class=lit>“' . enc($h->what->signature) . '”</span>' : '(none)'?></div>
 				</div>
 				<?php if ($h->p->live()) { ?>
-					<label class=uppergap><input type=checkbox name='attn_p<?=$h->pitchId?>' value=1 /> Flag for further attention</label>
+					<label class=uppergap><input type=checkbox name='attn_p<?=$h->what->pitchId?>' value=1 /> Flag pitch for further attention</label>
 				<?php } ?>
 			<?php } else { ?>
 				<?php if ($h->moderationId) { ?>
@@ -552,18 +564,20 @@ if (!$databaseFailed)
 				<div>Submitted <?=$h->whenPosted?></div>
 				<?php } ?>
 				<div>
-					<?=histword('Subject', $h->subject, $h->s)?>
-					<?=histword('Verb',    $h->verb,    $h->v)?>
-					<?=histword('Object',  $h->object,  $h->o)?>
+					<?=histword('Subject', $h->what->c->subject, $h->s)?>
+					<?=histword('Verb',    $h->what->c->verb,    $h->v)?>
+					<?=histword('Object',  $h->what->c->object,  $h->o)?>
 				</div>
 				<?php if ($h->s->live() || $h->v->live() || $h->o->live()) { ?>
 					<div class=uppergap>
-						<label><input type=checkbox name='attn_g<?=$h->suggestionId?>' value=1 /> Flag for further attention</label>
+						<label><input type=checkbox name='attn_g<?=$h->suggestionId?>' value=1 /> Flag words for further attention</label>
 					</div>
 				<?php } ?>
 			<?php } ?>
 		</blockquote>
-		<?php } ?>
+		<?php }
+		      if ($watermark)
+		          echo("</div>\n"); ?>
 
 	<p>
 

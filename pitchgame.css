@@ -18,6 +18,9 @@ h2 {
 a:link, a:visited, a:active {
 	color: #2727A0;
 }
+h3 a {
+	white-space: nowrap;
+}
 
 .title {
 	text-align: center;
@@ -28,6 +31,7 @@ a:link, a:visited, a:active {
 	font-size: 133%;
 	color: #AA3322;
 	transform: perspective(10rem) rotateX(-15deg) scaleY(3.5);
+	pointer-events: none;   /* otherwise the transform obscures the nearby subtitle links */
 }
 .subtitle  {
 	text-align: center;
@@ -80,7 +84,7 @@ a:link, a:visited, a:active {
 .plop .closer span {
 	font-weight: bold;
 	position: relative;   /* vertical-align does nothing */
-	top: -0.26em;
+	top: -0.22em;
 }
 @media screen and (min-width: 40em) {
 	.narrow {
@@ -204,21 +208,24 @@ form p:last-child {
 	margin-bottom: 1.33rem;
 }
 .chungus label {
-	min-width: 6rem;
+	min-width: 6.3rem;
 }
 .chungus textarea {
-	width: calc(100% - 7.7rem);
+	width: calc(100% - 8rem);
 }
 .chungus input.chungus {
-	width: calc(100% - 7.7rem);
+	width: calc(100% - 8rem);
 }
 input.chungus.mini {
-	max-width: 14rem;
+	max-width: 15rem;
 }
 .postchex label {
-	margin-left: 6.15rem;
-	max-width: calc(100% - 7.7rem);
+	margin-left: 6.6rem;
+	max-width: calc(100% - 8rem);
 }
+/* input[type=checkbox] {
+	border-width: 3px;
+}  ...doesn't work */
 .optionality {
 	position: absolute;
 	top: 1.45rem;
@@ -238,7 +245,7 @@ input.chungus.mini {
 	color: #CC0000;
 }
 .exceptional {
-	color: #996666;
+	color: #444488;
 }
 
 

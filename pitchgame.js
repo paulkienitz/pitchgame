@@ -24,18 +24,12 @@ function showHints(ev)
 {
 	var plopup = document.getElementById('howtoplay');
 	plopup.style.display = 'block';
-	ev.preventDefault();
-	ev.stopPropagation();
-	return false;
 }
 
 function showLog(ev)
 {
 	var log = document.getElementById('theLog');
 	log.style.display = 'block';
-	ev.preventDefault();
-	ev.stopPropagation();
-	return false;
 }
 
 function randomize(ev)
@@ -46,25 +40,25 @@ function randomize(ev)
 		seedy.value = '';
 	if (form)
 		form.submit();
-	ev.preventDefault();
-	ev.stopPropagation();
-	return false;
 }
 
 function showSessionSummary(ev)
 {
 	var sessionId = this.id.substring(8);
 	var url = "moderator.php?sessionId=" + sessionId;
-	var plopup = document.getElementById('sessionStats');
-	SPARE.replaceContent("userSummarySpot", url, "userSummary", null, plopup, function (plopup) {
-		plopup.style.display = 'block';
-		var lsi = document.getElementById('lastSessionId');
-		lsi.value = sessionId + '';
-		attach('#historicize', beHistorical);
-	});
-	ev.preventDefault();
-	ev.stopPropagation();
-	return false;
+	if (typeof SPARE == 'object')
+	{
+		var plopup = document.getElementById('sessionStats');
+		SPARE.replaceContent("userSummarySpot", url, "userSummary", null, plopup,
+		                     function (plopup) {
+		                         plopup.style.display = 'block';
+		                         var lsi = document.getElementById('lastSessionId');
+		                         lsi.value = sessionId + '';
+		                         attach('#historicize', clicker(beHistorical));
+		                     });
+	}
+	else
+		window.location.href = url;
 }
 
 function closer()
@@ -84,9 +78,6 @@ function beModerate(ev)
 		formtype.value = 'moderate';
 		form.submit();
 	}
-	ev.preventDefault();
-	ev.stopPropagation();
-	return false;
 }
 
 function beSuspicious(ev)
@@ -98,9 +89,6 @@ function beSuspicious(ev)
 		formtype.value = 'suspectmoreorless';
 		form.submit();
 	}
-	ev.preventDefault();
-	ev.stopPropagation();
-	return false;
 }
 
 function beHistorical(ev)
@@ -112,9 +100,6 @@ function beHistorical(ev)
 		formtype.value = 'history';
 		form.submit();
 	}
-	ev.preventDefault();
-	ev.stopPropagation();
-	return false;
 }
 
 function beHistoricalDirectly(ev)
@@ -134,18 +119,21 @@ function changeDays(ev)
 		formtype.value = 'usualsuspects';
 		form.submit();
 	}
-	ev.preventDefault();
-	ev.stopPropagation();
-	return false;
 }
 
 function changeDaysMaybe(ev)
 {
 	var form = document.forms[0];
 	if (form && form['daysold'] && form['daysold'].value != '3')
-		return changeDays(ev);
+		return clicker(changeDays)(ev);
 	else
 		return true;
+}
+
+function showOldHistory(ev)
+{
+	var old = document.getElementById('oldHistory');
+	old.style.display = 'block';
 }
 
 // unstick any stuck formtype:
@@ -198,31 +186,43 @@ function rateAsSpamOrClear(ev)
 	showStars(pitchId, parts[1] == "spam" ? -1 : 0);
 }
 
-function attach(selector, handler, event)   // my framework!
+function attach(selector, handler, eventType)   // my framework!
 {
 	var finding = document.querySelectorAll(selector);
 	for (var i = 0; i < finding.length; i++)
-		finding[i].addEventListener(event || 'click', handler);
+		finding[i].addEventListener(eventType || 'click', handler);
+}
+
+function clicker(handler)   // DRY out the most common handler type
+{
+	return function (ev)
+	       {
+	       	   	ev.preventDefault();
+	            ev.stopPropagation();
+	            handler.apply(this, [ev]);   // if handler loads a new page, it should come after preventDefault
+	            return false;
+	       };
 }
 
 function init()
 {
 	polyfill_closest();
-	attach('#showLog', showLog);
-	attach('#randomize', randomize);
-	attach('#showhints', showHints);
+	attach('#showLog', clicker(showLog));
+	attach('#randomize', clicker(randomize));
+	attach('#showhints', clicker(showHints));
 	attach('.closer, .backer', closer);
-	attach('#moderato', beModerate);
+	attach('#moderato', clicker(beModerate));
 	attach('.star', rateWithStars);
 	attach('.spam', rateAsSpamOrClear);
-	attach('.fields .slinky, .his .slinky', showSessionSummary);
-	attach('.direct .slinky', beHistoricalDirectly);
-	attach('#historicize', beHistorical);       // normally used only in a SPARE popup
-	attach('#suspectmoreorless', beSuspicious);
-	attach('#daysOldDropdown', changeDays, 'change');
+	attach('.fields .slinky, .his .slinky', clicker(showSessionSummary));
+	attach('.direct .slinky', clicker(beHistoricalDirectly));
+	attach('#historicize', clicker(beHistorical));       // normally used only in a SPARE popup
+	attach('#suspectmoreorless', clicker(beSuspicious));
+	attach('#daysOldDropdown', clicker(changeDays), 'change');
 	attach('#backToList', changeDaysMaybe);
 	attach('#pronounce', ensurePronounce);
 	attach('#pitchery', ensurePitch);
+	attach('#showOldHistory', clicker(showOldHistory));
 }
 
 window.addEventListener("DOMContentLoaded", init);

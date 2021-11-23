@@ -28,13 +28,13 @@ class Challenge
 	public ?int    $objectId;
 }
 
-// A pitch includes the three word challenge which was used to prompt it.
-class Pitch extends Challenge
+class Pitch
 {
-	public ?int    $pitchId;
-	public ?string $title;
-	public ?string $pitch;
-	public ?string $signature;
+	public ?Challenge $c;         // the idea that inspired the pitch
+	public ?int       $pitchId;
+	public ?string    $title;
+	public ?string    $pitch;
+	public ?string    $signature;
 }
 
 class RatedPitch extends Pitch
@@ -497,8 +497,9 @@ class PitchGameConnection
 			do
 			{
 				$pitch = new Pitch();
-				$gotten = $getPitches->getRow($pitch->pitchId, $pitch->subjectId, $pitch->verbId, $pitch->objectId,
-				                              $pitch->subject, $pitch->verb, $pitch->object,
+				$pitch->c = new Challenge();
+				$gotten = $getPitches->getRow($pitch->pitchId, $pitch->c->subjectId, $pitch->c->verbId, $pitch->c->objectId,
+				                              $pitch->c->subject, $pitch->c->verb, $pitch->c->object,
 				                              $pitch->title, $pitch->pitch, $pitch->signature);
 				if ($gotten)
 				{
@@ -587,8 +588,9 @@ class PitchGameConnection
 			do
 			{
 				$pitch = new RatedPitch();
-				$gotten = $getPitches->getRow($pitch->pitchId, $pitch->subjectId, $pitch->verbId, $pitch->objectId,
-				                              $pitch->subject, $pitch->verb, $pitch->object,
+				$pitch->c = new Challenge();
+				$gotten = $getPitches->getRow($pitch->pitchId, $pitch->c->subjectId, $pitch->c->verbId, $pitch->c->objectId,
+				                              $pitch->c->subject, $pitch->c->verb, $pitch->c->object,
 				                              $pitch->title, $pitch->pitch, $pitch->signature,
 				                              $pitch->yourRating, $pitch->averageRating, $pitch->ratingCount);
 				if ($gotten)
@@ -608,7 +610,7 @@ class PitchGameConnection
 		if ($ex)
 			error_log(SqlLogger::formatThrowable($ex));
 		if (!$this->lastError && $ex)
-			$this->lastError = SqlLogger::formatThrowable($ex) . "\n\n" . $this->log->log;
+			$this->lastError = SqlLogger::formatThrowable($ex);
 	}
 }
 ?>
