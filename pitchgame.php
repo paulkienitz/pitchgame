@@ -4,8 +4,8 @@
 
 // TODO: 
 //
-// BUGS: "with pits" queries for reviews or faves are intermittently slow, but still test as fast in phpmyadmin
-//       inconsistent closebox alignment - bad in chrome/A, slightly off elsewhere... replace &times; with svg?
+// BUGS: inconsistent closebox alignment - bad in chrome/A, slightly off elsewhere... replace &times; with svg?
+//       apparent dupes in modreq list; judging one leaves the other... actually dupe submissions?
 //
 // TEST: 
 //

@@ -98,6 +98,7 @@ CREATE TABLE pitchgame.pitches (
   is_deleted          BOOLEAN       NOT NULL DEFAULT 0,
   is_private          BOOLEAN       NOT NULL DEFAULT 0,
   participation_id    INT           DEFAULT NULL,
+  undesirability      INT           GENERATED ALWAYS AS (shown_ct + 4 * moderation_flag_ct) VIRTUAL,
 
   PRIMARY KEY            (pitch_id),
   UNIQUE KEY no_dupes    (session_id, subject_id, verb_id, object_id)
@@ -106,6 +107,7 @@ CREATE TABLE pitchgame.pitches (
   KEY pitch_subject      (subject_id),
   KEY pitch_verb         (verb_id),
   KEY pitch_object       (object_id),
+  KEY pitch_funky        (undesirability),
   CONSTRAINT pitch_session       FOREIGN KEY (session_id)       REFERENCES objects (session_id),
   CONSTRAINT pitch_subject       FOREIGN KEY (subject_id)       REFERENCES subjects (subject_id),
   CONSTRAINT pitch_verb          FOREIGN KEY (verb_id)          REFERENCES verbs (verb_id),
@@ -117,7 +119,7 @@ CREATE TABLE pitchgame.ratings (
   rating_id           INT           NOT NULL AUTO_INCREMENT,
   session_id          INT           NOT NULL,
   pitch_id            INT           NOT NULL,
-  rating              TINYINT(2)    NOT NULL COMMENT '1 to 4, and -1 means mark as spam',
+  rating              TINYINT(2)    NOT NULL COMMENT '1 to 4, -1 means mark as spam, -2 means flagged by moderator',
   when_rated          DATETIME      NOT NULL DEFAULT current_timestamp(),
 
   PRIMARY KEY            (rating_id),

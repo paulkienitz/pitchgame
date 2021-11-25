@@ -182,7 +182,7 @@ else if (isset($_POST['formtype']) && !$databaseFailed)		// extract form values,
 				if ($h->p->live())
 				{
 					if (!!$_POST["attn_p{$h->what->pitchId}"])
-						if ($con->ratePitch($h->what->pitchId, -1))
+						if ($con->ratePitch($h->what->pitchId, -2))
 							++$pitchesFlagged;
 						else
 							$databaseFailed = true;

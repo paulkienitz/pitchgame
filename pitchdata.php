@@ -472,13 +472,12 @@ class PitchGameConnection
 	{
 		try
 		{
-			// XXX sometimes nonperformant, intermittently:
 			$getPitches /*non-team*/ = new Selector($this->marie, $this->log, 'iii', '
 			    WITH pits AS ( SELECT pitch_id, subject_id, verb_id, object_id, title, pitch, signature FROM pitches p
 			                    WHERE is_deleted = false AND is_private = false AND session_id <> ?
 			                      AND NOT EXISTS ( SELECT rating_id FROM ratings r
 			                                        WHERE r.pitch_id = p.pitch_id AND r.session_id = ? )
-			                    ORDER BY shown_ct + 2 * moderation_flag_ct, last_shown
+			                    ORDER BY undesirability, last_shown
 			                    LIMIT 100 )
 			    SELECT pitch_id, subject_id, verb_id, object_id,
 			           s.word as subject_noun, v.word as verb, o.word as object_noun,
@@ -529,7 +528,7 @@ class PitchGameConnection
 	{
 		try
 		{
-			if ((int) $rating < -1 || (int) $rating > 4)
+			if ((int) $rating < -2 || (int) $rating > 4)
 				throw new Exception("Rating '$rating' for pitch $pitchId out of range");
 			if (!$this->addRating)
 			{
@@ -545,7 +544,7 @@ class PitchGameConnection
 			//if (!(int) $rating)
 			//	$this->removeRating->update($pitchId, $this->sessionId);
 			//else
-			$r = $this->addRating->insert($pitchId, $this->sessionId, $rating);
+			$r = $rating < -1 || $this->addRating->insert($pitchId, $this->sessionId, $rating);
 			if ($r && $rating < 0)
 				return $this->markPitch->update($pitchId) &&
 				       $this->addModeration->insert($this->sessionId, $pitchId);
@@ -562,14 +561,13 @@ class PitchGameConnection
 	{
 		try
 		{
-			// XXX this can be nonperformant, intermittently
 			$getPitches = new Selector($this->marie, $this->log, 'iii', '
 			    WITH pits AS ( SELECT pitch_id, subject_id, verb_id, object_id, title, pitch, signature, rating
 		                         FROM pitches p JOIN ratings r USING (pitch_id)
 			                    WHERE is_deleted = false AND is_private = false
 			                      AND p.session_id <> ? AND r.session_id = ?
 			                      AND rating >= 3
-			                    ORDER BY shown_ct + 2 * moderation_flag_ct, last_shown
+			                    ORDER BY undesirability, last_shown
 			                    LIMIT 100 )
 			    SELECT pitch_id, subject_id, verb_id, object_id,
 			           s.word as subject_noun, v.word as verb, o.word as object_noun,

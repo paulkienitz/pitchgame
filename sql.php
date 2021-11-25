@@ -95,7 +95,7 @@ class SqlStatement
 	// call this first in any derived class method that executes the statement
 	protected function bind(&...$params)
 	{
-		// lazy evaluation -- we only prepare the statement if it gets used
+		// lazy evaluation -- generally we only prepare the statement if it gets used
 		$this->log("$this->query:\n-- already prepared? " . SqlLogger::byn(!!$this->statement));
 		if (!$this->statement)
 			$this->statement = $this->marie->prepare($this->query);

@@ -84,7 +84,7 @@ h3 a {
 .plop .closer span {
 	font-weight: bold;
 	position: relative;   /* vertical-align does nothing */
-	top: -0.22em;
+	top: -0.22em;         /* dang it, different browsers don't position the glyph consistently */
 }
 @media screen and (min-width: 40em) {
 	.narrow {
@@ -225,7 +225,7 @@ input.chungus.mini {
 }
 /* input[type=checkbox] {
 	border-width: 3px;
-}  ...doesn't work */
+}   ...doesn't work */
 .optionality {
 	position: absolute;
 	top: 1.45rem;
