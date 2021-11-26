@@ -12,6 +12,6 @@ Options -Indexes
 <files "moderator.php">
 	AuthType Basic
 	AuthName "moderators only"
-	AuthUserFile /home/web/yoursite.cow/webpasswords-pitchgame-moderators
+	AuthUserFile /home/web/example-yoursite.cow/webpasswords-pitchgame-moderators
 	Require	valid-user
 </files>
