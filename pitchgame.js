@@ -197,7 +197,7 @@ function clicker(handler)   // DRY out the most common handler type
 {
 	return function (ev)
 	       {
-	       	   	ev.preventDefault();
+	       	    ev.preventDefault();
 	            ev.stopPropagation();
 	            handler.apply(this, [ev]);   // if handler loads a new page, it should come after preventDefault
 	            return false;
