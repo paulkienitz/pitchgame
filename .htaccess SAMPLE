@@ -3,7 +3,7 @@ Options -Indexes
 <files ".htaccess">
 	Require all denied
 </files>
-<files "configure.php">
+<files "pitch-configure.php">
 	Require all denied
 </files>
 <files "pitchdata*.php">
