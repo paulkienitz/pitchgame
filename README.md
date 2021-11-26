@@ -6,11 +6,12 @@
 The normal path through the game is as follows.
 
 0. If you have not launched the game before (or are on a new device), it may ask you to give a name, depending on a config option.
+(After the first time, your session is remembered via a long-term cookie.)
 
 1. In regular play, the initial state of the screen displays a welcome message and prompts you for a noun, a verb, and a noun.
 
 2. After saving your noun, verb, and noun, the form presents a different noun, verb, and noun randomly selected from past submissions, and prompts you to give a movie title and description — a pitch — based on the brief idea that they form when used as a sentence.
-You can also include an optional signature.
+You can also include an optional signature, which defaults to the name you gave initially (if any).
 
 3. After saving your pitch, it lists several previous pitches from other players, and lets you rate each one from one to four stars (or mark them as spam).
 
@@ -18,16 +19,15 @@ You can also include an optional signature.
 
 Abnormal paths can add these steps:
 
-5. If it runs out of movie pitches that you have neither written nor rated, then instead of showing you pitches to rate, it instead shows you pitches you've already rated with at least three stars... “old favorites”.
-(The game currently fails if none are found.)
+5. If it runs out of movie pitches that you have neither written nor rated, then instead of showing you pitches to rate, it shows you pitches you've already rated with at least three stars — “old favorites”.
 
 6. Step 2 offers you a link to complain about the words you received.
 This link takes you to a page where you can mark any or all of the three words as not a valid noun or not a valid verb.
 After you do so it takes you back to step 2, with any word you flagged replaced with a new one.
 
 Validation errors reprompt you with the same screen, with messages about required fields or whatever else the issue might be.
-Database errors exit to a screen which, for now, displays an exception message openly, followed by a log of database activity in the current postback.
-The former is also written to the server error log.
+Database errors exit to an apology screen which, for certain users, displays the internal exception message.
+This is also written to the server error log.
 
 The moderation page starts as a list of the ten newest pending moderation requests, each being answerable with a set of radio buttons.
 The same page can also serve content to `SPARE` to insert into a popup for viewing stats about a user, so you can see if they have a record of prior bad behavior.
@@ -37,7 +37,7 @@ If no moderation requests are left, the starting page lists users who have had s
 
 By messing directly with the database, certain users (sessions) can be flagged as testers, or as debuggers.
 Moderators are shown this status, so they know not to punish invalid inputs that may have been made for test purposes.
-Debuggers also get to see internal error messages in the case of an exception, and can view each page's list of database transactions.
+Debuggers also get to see internal error messages in the case of an exception, as mentioned, and can view each page's sequence of database transactions via a “show DB log” link.
 They also have an option to re-randomize the random selection of words to write a pitch for, and pitches to review.
 
 One feature that is planned but not yet implemented is any ability to have people properly log in, so their session isn’t limited to one cookie.
@@ -65,4 +65,4 @@ Uploading spare03min.js from my [SPARE](https://github.com/paulkienitz/SPARE) re
 Only the moderation page uses it.
 Note that SPARE 4 may be incompatible, if that’s out by the time you read this.
 
-Finally, upload the other .php, .css, .js, .jpg, and .html-content files from this repo, and test it out.
+Finally, upload the .php, .css, .js, .jpg, and .html-content files from this repo, and test it out.
