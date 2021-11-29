@@ -264,7 +264,7 @@ header('cache-control: no-cache');
 
 <body>
 
-<?php if (!$databaseFailed && ($pagestate == ASK3_COLD || $pagestate == ASKNAME)) { ?>
+<?php if (!$databaseFailed) { ?>
 
 <div class=plop id=howtoplay>
 	<div class=backer></div>
