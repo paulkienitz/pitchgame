@@ -3,6 +3,8 @@
 
 **This game and its source code may be freely used for noncommercial purposes (MIT License with Commons Clause).**
 
+### The game is now live and available to play [here](http://paulkienitz.net/pitchgame/)!
+
 The normal path through the game is as follows.
 
 0. If you have not launched the game before (or are on a new device), it may ask you to give a name, depending on a config option.
