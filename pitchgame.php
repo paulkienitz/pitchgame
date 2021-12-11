@@ -276,7 +276,10 @@ header('cache-control: no-cache');
 		if (SUPPORT_TEAMS)
 			require 'pitchhints-team.html-content';
 		?>
-
+		<hr/>
+		<p style="font-size: 85%">
+			This is an open source project — the code is <a target="_blank" href="https://github.com/paulkienitz/pitchgame">here</a>.
+		</p>
 	</aside>
 </div>
 
