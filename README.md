@@ -3,6 +3,8 @@
 
 **This game and its source code may be freely used for noncommercial purposes (MIT License with Commons Clause).**
 
+**The game is now live and available to play [here](http://paulkienitz.net/pitchgame/)!**
+
 The normal path through the game is as follows.
 
 0. If you have not launched the game before (or are on a new device), it may ask you to give a name, depending on a config option.
@@ -44,6 +46,8 @@ One feature that is planned but not yet implemented is any ability to have peopl
 The intent is to support major SSO providers for identity (Google, MS, Apple).
 Another feature which is far from finished is “team play”, in which a group of four or more friends play a private game amongst themselves, seeing each other’s challenges and pitches instead of ones from the general pool.
 We could also add features to see review averages of your own pitches, or the collected pitches of a single author.
+
+Fun fact about this game: I wrote it to relax, which means I wrote a lot of it at bedtime, which means the majority of the code was typed in on my phone instead of on a keyboard.
 
 ### How to set up
 
