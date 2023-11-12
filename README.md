@@ -70,3 +70,15 @@ Only the moderation page uses it.
 Note that SPARE 4 may be incompatible, if that’s out by the time you read this.
 
 Finally, upload the .php, .css, .js, .jpg, and .html-content files from this repo, and test it out.
+
+### Change history:
+
+Original release was November 28, 2021.
+Team play was unfinished and not included.
+It did not include any means of searching or viewing pitches except to rate ones you had not rated yet, after completing a pitch.
+
+Second version was November 12, 2023.
+This made no visible change to the game, but did change some queries used by the moderation page, so as to allow a broader view of recent activity.
+It also makes the ideas that pitches responded to visible, whereas they were previously hidden.
+(I had some idea that this would make moderation more unbiased.)
+Also, tab characters were removed from the source code, and I changed the line endings to consistently use LF only, whereas previously half of them had used CRLF.
