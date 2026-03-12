@@ -3,7 +3,7 @@
 // moderation and features for flagging garbage inputs, we have to track a bunch more detail.
 // The moderation features are more complex than the gameplay.  See pitchgame tables.sql for data design.
 
-require 'pitchdata.php';
+require_once 'pitchdata.php';
 
 
 // objects returned by PitchGameAdminConnection methods:

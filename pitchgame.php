@@ -25,9 +25,9 @@
 //       view history of accept, reject, ban, and bulk delete by other admins? super-admin page for this?
 //       add more color?
 
-require 'pitchdata.php';
-require 'common.php';
-require 'pitch-configure.php';
+require_once 'pitch-configure.php';
+require_once 'common.php';
+require_once 'pitchdata.php';
 
 // we act as a state machine, and these are all of our states:
 define('ASK3_COLD', 0);
@@ -250,7 +250,7 @@ header('cache-control: no-cache');
 <?php } ?>
 
     <style type='text/css'>
-        /* Font notes: Arvo is typewriter-ish but cleaner and not monospace, let's use for input and lit... go heavier?  Patua One needs to go lighter but can't */
+        /* Font notes: Arvo is typewriter-ish but cleaner and not monospace - let's use for input and lit... go heavier?  Patua One needs to go lighter but can't */
         /* Acme is heavy and slanty, usable for prompts and maybe for body, but I'd like it lighter for body use... let's use for prompts */
         /* Nunito is clean and pleasant, good for prompts without adding many style points; ABeeZee is more stylish, ok for body and good for prompts */
         /* Comfortaa/700 is very round and modern, acceptable for body text, should contrast well with arvo? (nope), also nice for prompts but maybe too wide */
@@ -407,7 +407,8 @@ header('cache-control: no-cache');
     <h2 class="challenge lit">
     <?=enc($challengeSummary)?>
     </h2>
-    <div class=modery>(<a href='' id=moderato>click here</a> if one or more words are invalid)</div>
+    <div class=modery style='margin-bottom: 3rem'>(<a href='' id=moderato>click here</a> if
+    one or more words are invalid)</div>
 
     <form method="POST" id=pitchform class=fields autocomplete=off>
         <input type=hidden name=formtype id=formtype value='pitch' />
@@ -415,7 +416,12 @@ header('cache-control: no-cache');
         <input type=hidden name=challenge value='<?=enc(serialize($challenge))?>' />
         <input type=hidden name=seed value="<?=$seed?>" />
         <div class=chungus>
-            <div>
+		    <!-- put the challenge right into the input form, to try to get a sufficient clue through for the
+			     oblivious users who write pitches for their own words instead of the ones they were given: -->
+            <div style='margin-bottom: 1em'>
+                <label for=title>Idea to use:</label>
+                <label class="challenge lit"><?=enc($challengeSummary)?></label>
+            </div><div>
                 <label for=title>Movie Title:</label>
                 <input type=text id=title name=title class=chungus value='<?=enc($title)?>' maxlength=100 tabindex=1 />
             </div><div>
@@ -524,24 +530,35 @@ header('cache-control: no-cache');
 
     </p><p>
 
-    You should mark a word invalid if it can’t be used as the correct part of speech
-    (for instance “<span class=lit>of</span>” or “<span class=lit>actually</span>” or
-    “<span class=lit>tall</span>”), if it’s gibberish (like “<span class=lit>Ggggggg</span>” or
-    “<span class=lit>asdfasdf</span>”), if it’s spam (“<span class=lit>lose-weight-fast.zzxx.cwm</span>”
-    or “<span class=lit>buy DogeCoin now!</span>”), if it’s an attempted hack
-    (such as “<span class=lit>&lt;script src='http://unknown.site/xxx.js'&gt;&lt;script&gt;</span>”
-    or “<span class=lit>x'; DROP TABLE pitch_verb;</span>”), if it’s not English
-    and wouldn’t be recognized by English speakers (“<span class=lit>Mantergeistmännlichkeit</span>”
-    or “<span class=lit>新代载人飞船</span>”), or if it’s hate propaganda or promotes crime.
+    You should mark a word invalid if any of these applies:
+
+    </p><ul>
+        <li>if it can’t be used as the correct part of speech (for instance
+            “<span class=lit>of</span>” or “<span class=lit>actually</span>” or
+            “<span class=lit>tall</span>”)</li>
+        <li>if it’s gibberish (like “<span class=lit>Ggggggg</span>” or
+            “<span class=lit>asdfasdf</span>”)</li>
+        <li>if it’s spam (“<span class=lit>lose-weight-fast.zzxx.cwm</span>”
+            or “<span class=lit>buy DogeCoin now!</span>”)</li>
+        <li>if it’s an attempted hack (such as
+            “<span class=lit>&lt;script src='http://unknown.site/xxx.js'&gt;&lt;script&gt;</span>”
+            or “<span class=lit>x'; DROP TABLE pitch_verb;</span>”)</li>
+        <li>if it’s not English and wouldn’t be recognized by English speakers
+            (“<span class=lit>Mantergeistmännlichkeit</span>” or
+             “<span class=lit>新代载人飞船</span>”)</li>
+        <li>or if it’s hate propaganda or promotes crime.</li>
+    </ul>
 
     </p><p>
 
-    You should <i>not</i> mark words invalid because the sentence it makes is
-    grammatically awkward due to mismatched plurals or tenses (“<span class=lit>ichthyosaurs flies
-    over pessimism</span>”), because it has adult language (“<span class=lit>Ben Franklin shits on your
-    shoe</span>”), or because you would really like an easier idea to pitch.&ensp;The
-    inconvenience of trying to make creative sense of a jumbled idea is a core part
-    of the game!&ensp;Abuse of this reporting feature will be monitored.
+    You should <i><b>not</b></i> mark words invalid because the sentence it
+    makes is grammatically awkward due to mismatched plurals or tenses
+    (“<span class=lit>ichthyosaurs flies over pessimism</span>”), because it
+    has adult language (“<span class=lit>Ben Franklin shits on your
+    shoe</span>”), or because you would really like an easier idea to pitch —
+    especially not that last one.&ensp;The inconvenience of trying to make 
+    reative sense of a jumbled idea is a core part of the game!&ensp;Abuse of
+    this reporting feature will be monitored.
     
     </p><p>
 

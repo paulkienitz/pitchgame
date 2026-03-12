@@ -345,7 +345,14 @@ blockquote.pitch {
     font-family: Arvo, Georgia, serif;
     font-size: 105%;
 }
-p > .lit, blockquote .lit, .pitch .lit {
+label.challenge {
+    font-size: 145%;
+    font-weight: bold;
+    position: relative;
+    left: calc(3px + 0.25rem);
+    top: 2px;
+}
+p > .lit, blockquote .lit, .pitch .lit, label.lit {
     color: black;
 }
 h2.lit {
@@ -353,6 +360,10 @@ h2.lit {
     line-height: 109%;
     color: black;
     margin-bottom: 0.5rem;
+    margin-top: -0.5rem;
+}
+li .lit {
+    color: black;
 }
 .qq {
     font-size: 120%;

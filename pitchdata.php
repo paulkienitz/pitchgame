@@ -1,8 +1,8 @@
 <?php
 // This contains database methods used for gameplay but not those used for moderation.
 
-require 'sql.php';
-require 'pitch-configure.php';
+require_once 'pitch-configure.php';
+require_once 'sql.php';
 
 
 // objects returned by PitchGameConnection methods:

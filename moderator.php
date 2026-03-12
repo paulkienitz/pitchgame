@@ -4,8 +4,8 @@
 
 // TODO: add new moderation option "Doesn't Fit Suggestion"?
 
-require 'pitchdata-admin.php';
-require 'common.php';
+require_once 'common.php';
+require_once 'pitchdata-admin.php';
 
 define('PENDING',   0);
 define('POPUP',     1);
@@ -103,7 +103,7 @@ function histword(string $part, ?string $word, HistoryPart $hp)
 function askWord(string $kind, int $id, string $when, int $sessionId, ?string $name, int $flagCount, int $dupes, string $word, int $moderationId)
 {
     $rat = "type=radio name='modreq_$kind[0]_$moderationId'";
-    $partOfSpeech = $kind == 'Verb' ? 'verb' : 'noun';
+    $partOfSpeech = $kind == 'Verb' ? 'transitive verb' : 'noun';
     return '<div class=uppergap>— ' . enc($kind) . ' ' . attribution($id, $when, $sessionId, $name, $flagCount) .
            ($dupes > 1 ? ", $dupes dupes" : '') .
            "</div>\n<div class=qq>Is <span class=lit>“" . enc($word) .
@@ -139,10 +139,10 @@ else if (isset($_POST['formtype']) && !$databaseFailed)     // extract form valu
         $moderationRequests = unserialize($_POST['moderationrequests']);
         foreach ($moderationRequests as $rq)
         {
-            $judgmentP = $_POST["modreq_P_$rq->moderationId"];
-            $judgmentS = $_POST["modreq_S_$rq->moderationId"];
-            $judgmentV = $_POST["modreq_V_$rq->moderationId"];
-            $judgmentO = $_POST["modreq_O_$rq->moderationId"];
+            $judgmentP = $_POST["modreq_P_$rq->moderationId"] ?? null;
+            $judgmentS = $_POST["modreq_S_$rq->moderationId"] ?? null;
+            $judgmentV = $_POST["modreq_V_$rq->moderationId"] ?? null;
+            $judgmentO = $_POST["modreq_O_$rq->moderationId"] ?? null;
             if (!$con->saveJudgment($rq, $judgmentP, $judgmentS, $judgmentV, $judgmentO))
                 $databaseFailed = true;
             else if ($judgmentP || $judgmentS || $judgmentV || $judgmentO)
@@ -183,13 +183,13 @@ else if (isset($_POST['formtype']) && !$databaseFailed)     // extract form valu
             {
                 if ($h->p->live())
                 {
-                    if (!!$_POST["attn_p{$h->what->pitchId}"])
+                    if (!!($_POST["attn_p{$h->what->pitchId}"] ?? null))
                         if ($con->ratePitch($h->what->pitchId, -2))
                             ++$pitchesFlagged;
                         else
                             $databaseFailed = true;
                 }
-                else if (!!$_POST["attn_g$h->suggestionId"])
+                else if (!!($_POST["attn_g{$h->suggestionId}"] ?? null))
                 {
                     if ($con->flagWordsForModeration($h->what->c, $h->s->live(), $h->v->live(), $h->o->live()))
                         $wordsFlagged += (int) $h->s->live() + (int) $h->v->live() + (int) $h->o->live();
@@ -455,10 +455,10 @@ header('cache-control: no-cache');
     <div id=userSummary>
         <table class=userSummary>
             <tr><td>Session status:</td>
-                <td>#<?=$sessionId?> is <?=$userSummary->blockedBy ? "<span class=warn>BLOCKED by $userSummary->blockedBy</span>"
+                <td>#<?=$sessionId?> is <?=$userSummary->blockedBy ? "<span class=warn><b>BLOCKED</b> by $userSummary->blockedBy</span>"
                                                                    : ($userSummary->isDebugger ? 'DEBUGGER'
                                                                       : ($userSummary->isTest ? 'TESTER' : 'active'))?>
-                    — <?=$userSummary->signature && $userSummary->signature != $userSemmary->nickname
+                    — <?=$userSummary->signature && $userSummary->signature != $userSummary->nickname
                          ? 'signature <span class=lit>“' . enc($userSummary->signature) . ($userSummary->nickname ? '”</span>, name <span class=lit>“' . enc($userSummary->nickname) : '') . '”</span>'
                          : ($userSummary->nickname ? '<span class=lit>“' . enc($userSummary->nickname) . '”</span>' : 'no name or signature')?></td>
             </tr>
