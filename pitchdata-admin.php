@@ -102,6 +102,7 @@ class SuspiciousSession {
     public ?string $nickname;
     public ?string $signature;
     public ?string $whenLastUsed;
+    public ?string $blockedBy;
     public ?int    $deletions;
 }
 
@@ -549,7 +550,7 @@ class PitchGameAdminConnection extends PitchGameConnection
         try
         {
             $findUsers = new Selector($this->marie, $this->log, 'iiiiii', '
-                WITH sesns AS ( SELECT session_id, nickname, signature, when_last_used, when_last_reviewed
+                WITH sesns AS ( SELECT session_id, nickname, signature, when_last_used, when_last_reviewed, blocked_by
                                   FROM sessions
                                  WHERE datediff(now(), when_last_used) <= ?
                                    AND (blocked_by IS NULL OR ? > 0) ),
@@ -572,7 +573,7 @@ class PitchGameAdminConnection extends PitchGameConnection
                                         AND when_submitted >= ifnull(when_last_reviewed, DATE \'1901-01-01\'))
                                     OR ? > 0
                                  GROUP BY session_id )
-                SELECT session_id, nickname, signature, when_last_used,
+                SELECT session_id, nickname, signature, when_last_used, blocked_by,
                        ifnull(word_deletions, 0) + ifnull(pitch_deletions, 0) AS deletions
                   FROM sesns                    LEFT JOIN
                        words USING (session_id) LEFT JOIN
@@ -588,7 +589,7 @@ class PitchGameAdminConnection extends PitchGameConnection
                                $everybodyIsSuspicious, $everybodyIsSuspicious, $everybodyIsSuspicious);
             do {
                 $u = new SuspiciousSession();
-                $gotten = $findUsers->getRow($u->sessionId, $u->nickname, $u->signature, $u->whenLastUsed, $u->deletions);
+                $gotten = $findUsers->getRow($u->sessionId, $u->nickname, $u->signature, $u->whenLastUsed, $u->blockedBy, $u->deletions);
                 if ($gotten)
                     $results[] = $u;
             } while ($gotten);

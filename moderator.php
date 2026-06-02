@@ -422,7 +422,8 @@ header('cache-control: no-cache');
 
         <?php foreach ($suspiciousSessions as $sus) { ?>
             <p>
-                <?=$sus->deletions?> deletions, active <?=enc($sus->whenLastUsed)?>: <?=slink($sus->sessionId, $sus->nickname)?>
+                <?=$sus->deletions?> deletions,<?=$sus->blockedBy ? ' BLOCKED, ' : ''?>
+                last active <?=enc($sus->whenLastUsed)?>: <?=slink($sus->sessionId, $sus->nickname)?>
                 <?=$sus->signature && $sus->signature != $sus->nickname ? '— sig “' . enc($sus->signature) . '”' : '' ?>
             </p>
         <?php } ?>
